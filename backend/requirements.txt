@@ -1,0 +1,23 @@
+# Core framework
+fastapi>=0.111.0
+uvicorn>=0.30.0          # drop [standard] — uvloop is Linux-only, not needed on Windows
+python-multipart>=0.0.9
+python-dotenv>=1.0.0
+aiofiles>=23.2.1
+pydantic>=2.9.0          # 2.9+ ships CP313 wheels — no Rust compilation needed
+pydantic-settings>=2.5.0
+
+# Image processing
+Pillow>=10.4.0
+
+# Audio processing
+librosa>=0.10.2          # 0.10.2+ relaxes numba constraint — compatible with Python 3.13
+numpy>=1.26.0,<3.0
+scipy>=1.13.0
+
+# Visualisation (spectrogram generation)
+matplotlib>=3.9.0
+
+# Cloud & caching
+azure-storage-blob>=12.22.0
+redis>=5.0.0

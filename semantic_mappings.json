@@ -1,0 +1,388 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "created": "2026-05-29T03:20:00Z",
+    "description": "Deterministic semantic mapping rules for SpectraVerse",
+    "note": "All mappings are explainable and cacheable. Avoid random outputs."
+  },
+
+  "image_to_audio": {
+    "brightness": {
+      "description": "Brightness maps to pitch (dark=low, bright=high)",
+      "0.0-0.2": {
+        "pitch_hz": 110,
+        "pitch_name": "A2",
+        "reverb": 0.8,
+        "mood": "dark_mysterious"
+      },
+      "0.2-0.4": {
+        "pitch_hz": 165,
+        "pitch_name": "E3",
+        "reverb": 0.6,
+        "mood": "deep_contemplative"
+      },
+      "0.4-0.6": {
+        "pitch_hz": 220,
+        "pitch_name": "A3",
+        "reverb": 0.4,
+        "mood": "neutral"
+      },
+      "0.6-0.8": {
+        "pitch_hz": 330,
+        "pitch_name": "E4",
+        "reverb": 0.2,
+        "mood": "bright_energetic"
+      },
+      "0.8-1.0": {
+        "pitch_hz": 440,
+        "pitch_name": "A4",
+        "reverb": 0.1,
+        "mood": "very_bright_intense"
+      }
+    },
+
+    "color_temperature": {
+      "description": "Color warmth maps to instrument character",
+      "cool": {
+        "instruments": ["strings", "synth_pad", "flute"],
+        "tone": "ethereal_airy",
+        "eq": { "bass": -2, "treble": 3 },
+        "bpm_default": 60
+      },
+      "neutral": {
+        "instruments": ["piano", "guitar", "vibraphone"],
+        "tone": "balanced_natural",
+        "eq": { "bass": 0, "treble": 0 },
+        "bpm_default": 90
+      },
+      "warm": {
+        "instruments": ["pad", "organ", "cello"],
+        "tone": "warm_rich",
+        "eq": { "bass": 2, "treble": -2 },
+        "bpm_default": 80
+      },
+      "hot": {
+        "instruments": ["trumpet", "trombone", "electric_guitar"],
+        "tone": "energetic_bright",
+        "eq": { "bass": 3, "treble": 2 },
+        "bpm_default": 120
+      }
+    },
+
+    "texture_density": {
+      "description": "Texture complexity maps to layering and effects",
+      "smooth_0.0-0.25": {
+        "layers": 1,
+        "complexity": 0.2,
+        "effects": ["reverb"],
+        "harmonic_richness": 0.3
+      },
+      "light_0.25-0.5": {
+        "layers": 2,
+        "complexity": 0.4,
+        "effects": ["reverb", "chorus"],
+        "harmonic_richness": 0.5
+      },
+      "medium_0.5-0.75": {
+        "layers": 4,
+        "complexity": 0.6,
+        "effects": ["reverb", "delay", "distortion"],
+        "harmonic_richness": 0.7
+      },
+      "dense_0.75-1.0": {
+        "layers": 8,
+        "complexity": 0.9,
+        "effects": ["reverb", "delay", "distortion", "compression"],
+        "harmonic_richness": 0.95
+      }
+    },
+
+    "edge_sharpness": {
+      "description": "Sharp edges → percussion, soft edges → ambient",
+      "soft_0.0-0.3": {
+        "percussion": false,
+        "attack_ms": 200,
+        "instruments": ["pad", "strings"],
+        "character": "ambient"
+      },
+      "medium_0.3-0.7": {
+        "percussion": true,
+        "attack_ms": 100,
+        "instruments": ["piano", "guitar", "bells"],
+        "character": "balanced"
+      },
+      "sharp_0.7-1.0": {
+        "percussion": true,
+        "attack_ms": 20,
+        "instruments": ["drums", "strings_pizzicato", "wood_blocks"],
+        "character": "percussive"
+      }
+    },
+
+    "scene_type": {
+      "description": "Scene context provides mood and base BPM",
+      "nature": {
+        "bpm": 70,
+        "base_instruments": ["strings", "flute", "ambient_pad"],
+        "effects": ["reverb", "nature_ambience"],
+        "mood": "calm_organic"
+      },
+      "urban": {
+        "bpm": 100,
+        "base_instruments": ["synth", "electric_guitar", "electronic_drums"],
+        "effects": ["delay", "distortion"],
+        "mood": "energetic_mechanical"
+      },
+      "indoor": {
+        "bpm": 85,
+        "base_instruments": ["piano", "cello", "bells"],
+        "effects": ["reverb"],
+        "mood": "intimate_warm"
+      },
+      "sky": {
+        "bpm": 65,
+        "base_instruments": ["pad", "strings", "harp"],
+        "effects": ["reverb", "chorus"],
+        "mood": "ethereal_vast"
+      },
+      "water": {
+        "bpm": 75,
+        "base_instruments": ["pad", "strings", "water_sounds"],
+        "effects": ["reverb", "delay"],
+        "mood": "flowing_meditative"
+      }
+    }
+  },
+
+  "audio_to_visual": {
+    "bpm": {
+      "description": "BPM maps to particle speed and animation pace",
+      "0-60": {
+        "particle_speed": 0.3,
+        "animation_fps": 24,
+        "motion_blur": 0.7,
+        "vibe": "slow_meditative"
+      },
+      "60-90": {
+        "particle_speed": 0.7,
+        "animation_fps": 30,
+        "motion_blur": 0.4,
+        "vibe": "relaxed"
+      },
+      "90-120": {
+        "particle_speed": 1.2,
+        "animation_fps": 60,
+        "motion_blur": 0.2,
+        "vibe": "energetic"
+      },
+      "120-160": {
+        "particle_speed": 2.0,
+        "animation_fps": 60,
+        "motion_blur": 0.0,
+        "vibe": "intense_fast"
+      },
+      "160+": {
+        "particle_speed": 3.0,
+        "animation_fps": 60,
+        "motion_blur": 0.0,
+        "vibe": "chaotic_explosive"
+      }
+    },
+
+    "bass_energy": {
+      "description": "Bass energy maps to darkness, scale, and ground",
+      "0.0-0.2": {
+        "darkness": 0.1,
+        "scale": 0.7,
+        "ground_visible": false,
+        "character": "light_airy"
+      },
+      "0.2-0.4": {
+        "darkness": 0.3,
+        "scale": 0.9,
+        "ground_visible": true,
+        "character": "balanced"
+      },
+      "0.4-0.6": {
+        "darkness": 0.6,
+        "scale": 1.2,
+        "ground_visible": true,
+        "character": "grounded"
+      },
+      "0.6-0.8": {
+        "darkness": 0.8,
+        "scale": 1.5,
+        "ground_visible": true,
+        "character": "heavy_dark"
+      },
+      "0.8-1.0": {
+        "darkness": 0.95,
+        "scale": 2.0,
+        "ground_visible": true,
+        "character": "very_dark_massive"
+      }
+    },
+
+    "treble_energy": {
+      "description": "Treble energy maps to brightness, particles, and effects",
+      "0.0-0.2": {
+        "particles_enabled": false,
+        "brightness": 0.2,
+        "effects": []
+      },
+      "0.2-0.4": {
+        "particles_enabled": true,
+        "particle_count": 100,
+        "brightness": 0.5,
+        "effects": ["glow"]
+      },
+      "0.4-0.6": {
+        "particles_enabled": true,
+        "particle_count": 300,
+        "brightness": 0.7,
+        "effects": ["glow", "bloom"]
+      },
+      "0.6-0.8": {
+        "particles_enabled": true,
+        "particle_count": 600,
+        "brightness": 0.9,
+        "effects": ["glow", "bloom", "chromatic_aberration"]
+      },
+      "0.8-1.0": {
+        "particles_enabled": true,
+        "particle_count": 1000,
+        "brightness": 1.0,
+        "effects": ["glow", "bloom", "chromatic_aberration", "flashes"]
+      }
+    },
+
+    "spectral_centroid": {
+      "description": "Frequency content maps to color palette",
+      "low_0-2000": {
+        "color_palette": ["#FF0000", "#FF6600", "#FF9900"],
+        "character": "warm_bass_heavy",
+        "texture": "smooth_waves"
+      },
+      "mid_2000-5000": {
+        "color_palette": ["#00FF00", "#00FF99", "#00FFFF"],
+        "character": "neutral_balanced",
+        "texture": "geometric"
+      },
+      "high_5000-8000": {
+        "color_palette": ["#0099FF", "#0066FF", "#0033FF"],
+        "character": "cool_bright",
+        "texture": "sharp_edges"
+      },
+      "very_high_8000+": {
+        "color_palette": ["#FF00FF", "#FF00AA", "#FF0055"],
+        "character": "intense_bright",
+        "texture": "crystalline"
+      }
+    },
+
+    "genre": {
+      "description": "Inferred genre drives visual style",
+      "ambient": {
+        "style": "organic_flowing",
+        "effects": ["glow", "blur"],
+        "particles_type": "soft_floating"
+      },
+      "electronic": {
+        "style": "geometric_sharp",
+        "effects": ["bloom", "glitch"],
+        "particles_type": "precise_grid"
+      },
+      "hip_hop": {
+        "style": "rhythmic_pulsing",
+        "effects": ["flashes", "distortion"],
+        "particles_type": "explosive"
+      },
+      "classical": {
+        "style": "elegant_flowing",
+        "effects": ["glow", "motion_blur"],
+        "particles_type": "graceful_curves"
+      },
+      "metal": {
+        "style": "aggressive_intense",
+        "effects": ["chromatic_aberration", "glitch"],
+        "particles_type": "chaotic_sharp"
+      }
+    }
+  },
+
+  "creative_mode_modifiers": {
+    "description": "Apply multipliers to base semantic output per style",
+    "funny": {
+      "pitch_shift": 1.3,
+      "tempo_shift": 0.8,
+      "effect_intensity": 1.5,
+      "color_saturation": 1.8,
+      "chaos_level": 0.7,
+      "character": "playful_exaggerated"
+    },
+    "horror": {
+      "pitch_shift": 0.6,
+      "tempo_shift": 1.2,
+      "effect_intensity": 2.0,
+      "color_saturation": 0.5,
+      "darkness": 1.5,
+      "character": "dark_ominous"
+    },
+    "emotional": {
+      "pitch_shift": 1.0,
+      "tempo_shift": 0.9,
+      "effect_intensity": 0.8,
+      "reverb_boost": 1.5,
+      "color_palette": "warm_deep",
+      "character": "poignant_intimate"
+    },
+    "bassy": {
+      "bass_boost": 2.0,
+      "treble_cut": 0.5,
+      "effect_intensity": 0.9,
+      "particle_count_multiplier": 0.6,
+      "darkness": 0.8,
+      "character": "heavy_grounded"
+    },
+    "electrifying": {
+      "treble_boost": 1.8,
+      "particle_count_multiplier": 1.5,
+      "effect_intensity": 1.8,
+      "color_palette": "neon_bright",
+      "flashing": true,
+      "character": "intense_chaotic"
+    },
+    "spiritual": {
+      "pitch_shift": 1.1,
+      "effect_intensity": 1.2,
+      "reverb_boost": 2.0,
+      "color_palette": "ethereal_cosmic",
+      "motion_smoothness": 1.5,
+      "character": "transcendent_vast"
+    },
+    "experimental": {
+      "pitch_shift": 0.5,
+      "tempo_shift": 1.5,
+      "effect_intensity": 2.5,
+      "chaos_level": 1.0,
+      "color_distortion": true,
+      "character": "avant_garde_unpredictable"
+    }
+  },
+
+  "quality_validation": {
+    "audio": {
+      "min_loudness_lufs": -40,
+      "max_loudness_lufs": -10,
+      "target_loudness_lufs": -14,
+      "max_silence_seconds": 2,
+      "min_dynamic_range_db": 6
+    },
+    "visual": {
+      "min_mean_pixel_value": 5,
+      "max_flashes_per_second": 3,
+      "max_contrast_change": 0.25,
+      "min_unique_pixels_percent": 10
+    }
+  }
+}
