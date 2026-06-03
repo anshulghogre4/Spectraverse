@@ -35,3 +35,10 @@ yarn-error.log*
 .env
 .env.local
 .env.*.local
+
+# Claude Code — local session data, transcripts, personal settings
+.claude/projects/
+.claude/worktrees/
+.claude/settings.local.json
+# .claude/settings.json   ← keep this if you want shared project permissions
+# .claude/CLAUDE.md        ← keep this if you have project-level instructions
