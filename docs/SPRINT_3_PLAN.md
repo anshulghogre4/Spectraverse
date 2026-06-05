@@ -1,299 +1,286 @@
-# Sprint 3 Complete — Image→Audio Pipeline Ready
+# Sprint 3 Plan — Spectrogram Inversion: See a Conversation, Hear It Back
 
-**Date**: 2026-05-29 | **Session**: 03:34-03:36 UTC | **Status**: ✅ FULL PIPELINE WORKING
-
----
-
-## 🎯 Sprint 3 Deliverables (Image→Audio Complete)
-
-### Core Services
-
-✅ **vision_analyzer.py** — Extract image features (brightness, colors, scene, mood, texture)  
-✅ **semantic_mapper.py** — Deterministic mapping (image→audio, audio→visual, creative modifiers)  
-✅ **image_to_audio_pipeline.py** — Full pipeline (analysis→mapping→synthesis→safety→cache)  
-✅ **main_v2.py** — FastAPI integration with `/api/generate/image-to-audio` endpoint
-
-### Features Implemented
-
-✅ **Vision Analysis**: 8 semantic features extracted from images  
-✅ **Semantic Mapping**: Image features → audio parameters (pitch, BPM, instruments, effects)  
-✅ **Creative Modes**: 7 style modifiers (Funny, Horror, Emotional, Bassy, Electrifying, Spiritual, Experimental)  
-✅ **Safety Checks**: Clipping prevention, frequency filtering, silence detection  
-✅ **Caching**: 7-day Redis TTL for image features + audio outputs  
-✅ **Fallback Logic**: DSP-only generation when Vision API unavailable  
-✅ **Spectrogram Generation**: Mel-spectrogram as base64 PNG
+**Re-assessed**: 2026-06-06  
+**Status**: 📋 PLANNED — ready to build after Sprint 2 verified  
+**Duration**: 2 weeks  
+**Depends on**: Sprint 2 ✅
 
 ---
 
-## 📁 Files Generated This Sprint
+## Sprint Goal
 
-```
-backend_vision_analyzer.py              (6.6 KB) Image feature extraction
-backend_semantic_mapper.py              (11.1 KB) Deterministic mapping rules
-backend_image_to_audio_pipeline.py      (7.9 KB) Full generation pipeline
-backend_main_v2.py                      (8.2 KB) FastAPI v0.2.0 integration
-```
-
-**Total**: 4 new files | ~34 KB | 600+ lines of production code
+> User uploads a **spectrogram image** — a screenshot, export, or photo of any mel/linear/STFT
+> spectrogram — and hears the **reconstructed speech or audio** from it with crystal clarity.
+> This closes the loop: SpectraVerse can now both *create* spectrograms from audio AND
+> *invert* spectrograms back into audio.
 
 ---
 
-## 🧪 How to Test Image→Audio Pipeline
+## The Core Idea — Why This Is Powerful
 
-### Setup
+A spectrogram is not just a visualisation. It is a **lossless (or near-lossless) encoding
+of sound** — every frequency, every moment, every harmonic is right there in the image.
+A conversation recorded as a spectrogram can be reconstructed back into speech.
 
-```bash
-# Terminal 1: Backend
-cd backend
-python -m venv venv
-source venv/Scripts/activate
-pip install -r requirements.txt
-uvicorn app.main_v2:app --reload --port 8000
+**Real-world use cases:**
+- Forensic audio — a spectrogram screenshot from a video is all you need
+- Accessibility — convert spectrogram diagrams from papers into audible audio
+- Music production — reconstruct a melody from a handwritten or photographed score spectrogram
+- Competition demo highlight — "upload ANY spectrogram image and hear what it sounds like"
 
-# Terminal 2: Test
+---
+
+## Chain-of-Thought: How Spectrogram Inversion Works
+
+```
+Step 1 — Detect
+  Is the uploaded image a spectrogram? (frequency axis, time axis, colour gradient)
+  vs a regular photo?
+  → Classifier: aspect ratio + colour distribution + horizontal banding heuristic
+
+Step 2 — Pre-process
+  Crop axes/labels, normalise pixel intensities to dB scale
+  Resize to standard time×frequency bins (e.g. 128 mel bins × N time frames)
+  Invert colour map (viridis/magma → linear magnitude)
+
+Step 3 — Invert
+  Option A (no AI): Griffin-Lim algorithm
+    - librosa.griffinlim() estimates missing phase from magnitude
+    - 32-64 iterations for good quality
+    - Works on any spectrogram, no model needed
+
+  Option B (AI quality): Neural vocoder
+    - HiFi-GAN or Vocos pre-trained model
+    - Near phone-quality reconstruction for speech
+    - Requires ~100MB model download (one-time)
+
+Step 4 — Post-process
+  Bandpass filter (remove artefacts outside 50Hz–16kHz)
+  Loudness normalise to -14 LUFS
+  Return as WAV
+
+Step 5 — Display
+  Side-by-side: original spectrogram image + re-generated spectrogram of the output
+  "Before" vs "After" shows how faithfully the inversion worked
+  Audio player with the reconstructed speech/audio
 ```
 
-### Test 1: Health Check
+---
 
-```bash
-curl http://localhost:8000/health
-# Response: {"status": "ok", "version": "0.2.0", ...}
-```
+## Tasks
 
-### Test 2: Image Analysis (Debug)
+### Backend
 
-```bash
-curl -X POST -F "file=@test_image.jpg" \
-  http://localhost:8000/api/analyze-image
+#### s3-01 · Spectrogram detector — is this image a spectrogram? `[MUST · 1d]`
+**Why**: The existing `/api/analyze-image` treats all images as photos. We need to route
+spectrogram images to the inversion pipeline, not the vision analyser.  
+**Done when**: `POST /api/detect-spectrogram` returns `{"is_spectrogram": true/false, "confidence": 0.0-1.0, "type": "mel|linear|stft|unknown"}`. Correctly identifies a viridis mel-spectrogram as `true` and a sunset photo as `false` in manual testing.  
+**How**: Heuristics — aspect ratio > 2:1, dominant colour gradient (not natural colours), horizontal banding pattern detected via row-variance analysis.  
+**Files**: `backend/app/backend_spectrogram_detector.py` (new), `backend/app/main.py`
 
-# Response:
+---
+
+#### s3-02 · Spectrogram pre-processor — pixel → magnitude array `[MUST · 1.5d]`
+**Why**: Griffin-Lim needs a numpy magnitude array, not a PNG. Raw pixel values encode
+colour map (viridis, magma, etc.) not raw dB values — must invert the colour map first.  
+**Done when**: `SpectrogramPreprocessor.extract_magnitude(image_bytes)` returns a numpy
+`float32` array of shape `(n_mels, n_frames)` with values in range `[0, 1]`. Unit test
+confirms round-trip: synthesise audio → generate spectrogram → extract magnitude →
+the resulting shape matches the expected mel bins.  
+**Handles**: auto-detect colour map (viridis/magma/inferno/plasma), auto-crop axis labels
+(detect and remove left/bottom margins), normalise to 0–1.  
+**Files**: `backend/app/backend_spectrogram_preprocessor.py` (new)
+
+---
+
+#### s3-03 · Griffin-Lim inversion engine `[MUST · 1d]`
+**Why**: The primary reconstruction algorithm. No model download needed — `librosa.griffinlim()`
+is already installed.  
+**Done when**: `SpectrogramInverter.invert_griffin_lim(magnitude, sr=22050)` returns a
+`float32` numpy waveform. For a mel-spectrogram generated from a 440 Hz sine wave, the
+reconstructed audio has a dominant frequency within ±50 Hz of 440 Hz (verified via FFT peak).  
+**Parameters**: 64 iterations (quality/speed tradeoff), hop_length=512, n_fft=2048.  
+**Files**: `backend/app/backend_spectrogram_inverter.py` (new)
+
+---
+
+#### s3-04 · Wire `/api/invert-spectrogram` endpoint `[MUST · 1d]`
+**Why**: The endpoint that ties detection → preprocessing → inversion → safety → WAV encoding.  
+**Done when**: `POST /api/invert-spectrogram` with a mel-spectrogram PNG returns:
+```json
 {
-  "features": {
-    "brightness": 0.65,
-    "color_temperature": "warm",
-    "dominant_colors": [[255, 100, 50], ...],
-    "texture_density": "medium",
-    "scene_type": "urban",
-    "mood": "warm_energetic",
-    "has_objects": true,
-    "composition": "scattered"
-  }
-}
-```
-
-### Test 3: Image→Audio (Classic Mode)
-
-```bash
-curl -X POST -F "file=@sunset.jpg" \
-  "http://localhost:8000/api/generate/image-to-audio?mode=classic&style=" \
-  > response.json
-
-# Response:
-{
-  "job_id": "abc12345",
   "status": "success",
-  "mode": "classic",
-  "result": {
-    "audio_array": [...float samples...],
-    "sample_rate": 22050,
-    "duration": 30.0,
-    "image_features": {...},
-    "audio_params": {
-      "pitch": 220,
-      "bpm": 90,
-      "instruments": ["pad", "piano"],
-      "reverb": 0.4,
-      "intensity": 0.65
-    },
-    "safety_flags": [],
-    "status": "success",
-    "cache_hit": false
-  }
+  "audio_b64": "<base64 WAV>",
+  "sample_rate": 22050,
+  "duration": 3.2,
+  "reconstruction_method": "griffin_lim",
+  "confidence": 0.87,
+  "spectrogram_type": "mel",
+  "comparison_spectrogram": "<base64 PNG of re-synthesised spectrogram>"
 }
 ```
-
-### Test 4: Image→Audio (Creative Mode)
-
-```bash
-curl -X POST -F "file=@spooky.jpg" \
-  "http://localhost:8000/api/generate/image-to-audio?mode=creative&style=horror"
-
-# Horror style modifiers applied:
-# pitch_shift: 0.6 (lower)
-# tempo_shift: 1.2 (faster)
-# effect_intensity: 2.0 (stronger)
-# darkness: 1.5 (darker)
-```
-
-### Test 5: Cache Hit (Run Test 3 again)
-
-```bash
-# Same image + same mode + same style
-# Expected: "cache_hit": true (7-day TTL)
-```
-
-### Test 6: Semantic Mappings (Debug)
-
-```bash
-curl http://localhost:8000/api/mappings
-# Returns all mapping sections
-
-curl http://localhost:8000/api/mappings?section=image_to_audio
-# Returns only image→audio mappings
-```
+`audio_b64` decodes to a RIFF WAV. If the image is not a spectrogram, returns HTTP 422
+with `{"detail": "Image does not appear to be a spectrogram (confidence: 0.23)"}`.  
+**Files**: `backend/app/main.py`
 
 ---
 
-## 🔧 Integration Architecture
-
-```
-Image Upload
-    ↓
-[FastAPI endpoint: /api/generate/image-to-audio]
-    ↓
-ImageToAudioPipeline.generate()
-    ├─ Step 1: vision_analyzer.analyze(image)
-    │         → {brightness, colors, scene, mood, texture}
-    ├─ Step 2: semantic_mapper.image_to_audio_params()
-    │         → {pitch, bpm, instruments, reverb, effects}
-    ├─ Step 3: dsp_synthesizer.synthesize(params)
-    │         → waveform (numpy array)
-    ├─ Step 4: Safety checks (clipping, filtering, loudness)
-    ├─ Step 5: Spectrogram generation
-    ├─ Step 6: Redis cache (7-day TTL)
-    └─ Result: {audio_array, spectrogram, metadata, job_id}
-    ↓
-Response to frontend
-```
+#### s3-05 · Neural vocoder (HiFi-GAN) — optional high-quality path `[SHOULD · 2d]`
+**Why**: Griffin-Lim produces phase artefacts (metallic/echo-y sound). For speech spectrograms,
+HiFi-GAN (pre-trained on LJSpeech) produces near-phone-quality reconstruction.  
+**Done when**: When `HIFIGAN_AVAILABLE=true` (model downloaded), the endpoint uses HiFi-GAN
+by default. Falls back to Griffin-Lim if model absent. Response includes
+`"reconstruction_method": "hifigan"`.  
+**Model**: `speechbrain/tts-hifigan-ljspeech` (~50MB) via HuggingFace `transformers`.  
+**New dep**: `transformers>=4.35.0`, `torch>=2.0.0` (already in `requirements-extras.txt`).  
+**Files**: `backend/app/backend_spectrogram_inverter.py`, `backend/requirements-extras.txt`
 
 ---
 
-## 📊 Audio Parameter Flow (Example)
-
-### Input: Sunset Image
-
-```json
-{
-  "brightness": 0.75,
-  "color_temperature": "warm",
-  "texture_density": "smooth",
-  "scene_type": "nature",
-  "mood": "warm_energetic"
-}
-```
-
-### Semantic Mapping Output
-
-```json
-{
-  "brightness": 0.75 → "pitch": 330 Hz,
-  "color_temperature": "warm" → "instruments": ["pad", "organ", "cello"],
-  "texture_density": "smooth" → "complexity": 0.2, "reverb": 0.8,
-  "scene_type": "nature" → "bpm": 70,
-  "mood" → "effects": ["reverb"]
-}
-```
-
-### Generated Audio Parameters
-
-```json
-{
-  "pitch": 330,
-  "bpm": 70,
-  "instruments": ["pad", "organ", "cello"],
-  "complexity": 0.2,
-  "layering": 1,
-  "reverb": 0.8,
-  "intensity": 0.75,
-  "effects": ["reverb"]
-}
-```
-
-### Result: Warm, calm, organic ambient audio (30 seconds)
+#### s3-06 · Integration tests for inversion endpoint `[MUST · 0.5d]`
+**Done when**: 3 tests pass — (1) POST a mel-spectrogram PNG generated by the backend itself
+→ `audio_b64` starts with RIFF; (2) POST a sunset photo → HTTP 422; (3) POST a corrupt PNG →
+HTTP 400.  
+**Files**: `backend/tests/test_api.py`
 
 ---
 
-## 🎨 Creative Mode Modifiers (Example)
+### Frontend
 
-### Sunset Image + Horror Style
+#### s3-07 · `SpectrogramUploadZone` component — detect & route `[MUST · 1d]`
+**Why**: The existing UploadZone treats all images as photos. The spectrogram path needs a
+distinct UI: show the original spectrogram image, call `/api/invert-spectrogram`, display
+side-by-side comparison.  
+**Done when**: A third upload zone labelled "Spectrogram → Audio" appears on the page.
+After upload, calls `/api/detect-spectrogram` and shows a confidence badge. If confirmed,
+shows a "Reconstruct Audio" button. After generation, shows a two-column view:
+original spectrogram image on the left, re-synthesised spectrogram on the right, with
+the audio player between them.  
+**Files**: `frontend/components/SpectrogramUploadZone.tsx` (new)
+
+---
+
+#### s3-08 · `InversionOutputPanel` — before/after comparison `[MUST · 1d]`
+**Why**: The "wow moment" for this feature is seeing the original spectrogram and the
+reconstructed one side by side, proving the algorithm faithfully recovered the audio.  
+**Done when**: Component renders: (1) "Original" spectrogram image at full width; (2) audio
+player with reconstructed audio; (3) "Re-synthesised" spectrogram from the backend response;
+(4) a `confidence` badge (green ≥ 0.8, yellow ≥ 0.5, red < 0.5); (5) reconstruction method
+badge (Griffin-Lim / HiFi-GAN).  
+**Files**: `frontend/components/InversionOutputPanel.tsx` (new)
+
+---
+
+#### s3-09 · Add inversion API functions to `lib/api.ts` `[MUST · 0.5d]`
+**Done when**: `detectSpectrogram(file)` and `invertSpectrogram(file)` exported from `lib/api.ts`
+with full TypeScript types. `InversionResult` type includes `audio_b64`, `confidence`,
+`spectrogram_type`, `comparison_spectrogram`, `reconstruction_method`.  
+**Files**: `frontend/lib/api.ts`
+
+---
+
+#### s3-10 · Add "Spectrogram → Audio" section to `page.tsx` `[MUST · 0.5d]`
+**Done when**: Page has three sections: Image→Audio | Audio→Visual | Spectrogram→Audio.
+The third section has a distinct teal/cyan colour theme to visually separate it.  
+**Files**: `frontend/app/page.tsx`
+
+---
+
+## Technical Deep Dive: Griffin-Lim for Speech
 
 ```
-Base params: pitch=330, bpm=70, reverb=0.8, intensity=0.75
-
-Horror modifiers:
-  pitch_shift: 0.6 → new_pitch = 330 * 0.6 = 198 Hz (darker)
-  tempo_shift: 1.2 → new_bpm = 70 * 1.2 = 84 BPM (faster)
-  effect_intensity: 2.0 → intensity = min(0.75 * 2.0, 1.0) = 1.0
-  darkness: 1.5 (visual parameter)
-
-Result: Dark, unsettling, accelerated audio
+Conversation spectrogram (image)
+         │
+         ▼ SpectrogramPreprocessor
+  Crop axis labels (margin detection)
+  Detect colour map (viridis/magma/hot)
+  Invert colour map → linear magnitude [0, 1]
+  Convert to dB scale → S_db
+  Convert to power → S_power = librosa.db_to_power(S_db)
+  Convert to mel magnitude → S_mel (shape: 128 × T)
+         │
+         ▼ SpectrogramInverter.invert_griffin_lim()
+  librosa.feature.inverse.mel_to_audio(
+      S_mel,
+      sr=22050,
+      n_fft=2048,
+      hop_length=512,
+      n_iter=64        ← more iterations = better phase estimation
+  )
+  # This internally runs Griffin-Lim on the mel-inverted STFT
+         │
+         ▼ Post-processing
+  scipy.signal.butter bandpass (80Hz–16kHz)
+  pyloudnorm LUFS normalisation to -14 LUFS
+  scipy.io.wavfile.write → float32 WAV
+         │
+         ▼ Response
+  base64 WAV + re-synthesised spectrogram PNG
 ```
 
----
-
-## 🚀 Next: Sprint 4 (Audio→Visual Pipeline)
-
-**Goal**: Mirror image→audio with audio→visual  
-**Effort**: 2 weeks
-
-### What's Ready
-
-- SemanticMapper already has `audio_to_visual_params()` method
-- Frontend has SpectrogramVisualizer (can accept audio→visual params)
-- Backend needs:
-  1. `audio_to_visual_pipeline.py` (like image_to_audio_pipeline)
-  2. Procedural visual generator (shaders, particles)
-  3. `/api/generate/audio-to-visual` endpoint integration
-
-### Prompts
-
-See **PROMPT_LIBRARY.md** Sprint 4 for detailed prompts
+**Expected quality on speech:**
+- Clear enough to understand words at normal speaking pace
+- Some metallic/phase artefacts (Griffin-Lim limitation)
+- HiFi-GAN upgrade removes these entirely for speech
 
 ---
 
-## 💾 Build Statistics
+## What Makes This Demo-Ready
 
-| Component               | LOC           | Status      |
-| ----------------------- | ------------- | ----------- |
-| Vision Analyzer         | 200+          | ✅ Complete |
-| Semantic Mapper         | 350+          | ✅ Complete |
-| Image-to-Audio Pipeline | 250+          | ✅ Complete |
-| FastAPI Integration     | 180+          | ✅ Complete |
-| **Total Sprint 3**      | **~1000 LOC** | **✅ DONE** |
+For the competition a judge can:
+1. Screenshot a spectrogram from **any YouTube video** using browser DevTools (Spectral Analyzer)
+2. Upload that screenshot to SpectraVerse
+3. Hear the audio reconstructed from it
 
----
-
-## ✅ Verification Checklist
-
-- [x] Vision analysis extracts 8 semantic features
-- [x] Semantic mapper produces explainable mappings
-- [x] DSP synthesis generates valid audio waveforms
-- [x] Safety checks prevent clipping & dangerous frequencies
-- [x] Cache layer works (7-day TTL)
-- [x] Fallback generation works (DSP-only)
-- [x] Creative mode modifiers apply correctly
-- [x] FastAPI endpoints respond with correct JSON
-- [x] All functions documented & type-hinted
-- [x] Ready for frontend integration
+Or more dramatically:
+1. Take a photo of a **printed spectrogram** (from a paper or textbook)
+2. Upload the photo
+3. Hear the audio it encodes
 
 ---
 
-## 🔐 Model Memory (For Next Session)
+## Risks
 
-```
-SpectraVerse Sprint 3 complete: Image→Audio pipeline fully working.
-Files: backend_vision_analyzer.py, backend_semantic_mapper.py, backend_image_to_audio_pipeline.py, backend_main_v2.py
-Total LOC: 1000+ (tested)
-Architecture: Vision → Mapper → Synth → Safety → Cache
-Creative modes: 7 styles (Funny, Horror, Emotional, Bassy, Electrifying, Spiritual, Experimental)
-Next: Sprint 4 - Audio→Visual (mirror architecture, already half-done)
-Prompts: PROMPT_LIBRARY.md Sprint 4
-Budget: Still $0 (code generation phase)
-```
+| Severity | Risk | Mitigation |
+|---|---|---|
+| 🔴 HIGH | Colour map inversion accuracy — wrong colour map → wrong magnitudes → unrecognisable audio | Auto-detect top-5 colour maps, try each, pick best reconstruction by spectral entropy |
+| 🔴 HIGH | Axis label cropping — labels included in magnitude array add noise | Conservative margin crop (remove bottom 8% and left 6% of pixels by default) |
+| 🟡 MEDIUM | Griffin-Lim quality on noisy spectrograms (hand-drawn, photographed) | Increase iterations to 128 for photographed inputs; add denoising pre-pass |
+| 🟡 MEDIUM | HiFi-GAN model download (~50MB) may be slow on first use | Cache to `~/.cache/spectraverse/` after first download; fallback to Griffin-Lim if absent |
+| 🟡 MEDIUM | Non-mel spectrograms (linear, STFT, CQT) need different inversion paths | Detect type via aspect ratio + frequency scale; implement linear path as Sprint 3B if needed |
 
 ---
 
-**Status**: 🟢 SPRINT 3 COMPLETE & TESTED  
-**Build Progress**: 3/7 sprints (~43%)  
-**Confidence**: HIGH (end-to-end pipeline working)  
-**Budget**: On track (projected $53/mo)
+## Success Metrics
+
+1. Griffin-Lim reconstructs a 440 Hz sine tone with dominant FFT peak within ±50 Hz
+2. Speech spectrogram (any English TTS output) reconstructs with >70% word intelligibility (manual listening test)
+3. Sunset photo correctly classified as non-spectrogram (confidence < 0.4)
+4. End-to-end latency (upload → audio) < 8 seconds on warm server
+5. Side-by-side spectrogram comparison visually shows structural similarity
+
+---
+
+## Effort Summary
+
+| Task | Priority | Effort |
+|---|---|---|
+| s3-01 Spectrogram detector | MUST | 1.0d |
+| s3-02 Pre-processor (pixel → magnitude) | MUST | 1.5d |
+| s3-03 Griffin-Lim inverter | MUST | 1.0d |
+| s3-04 `/api/invert-spectrogram` endpoint | MUST | 1.0d |
+| s3-05 HiFi-GAN neural vocoder | SHOULD | 2.0d |
+| s3-06 Integration tests | MUST | 0.5d |
+| s3-07 SpectrogramUploadZone component | MUST | 1.0d |
+| s3-08 InversionOutputPanel (before/after) | MUST | 1.0d |
+| s3-09 API client functions | MUST | 0.5d |
+| s3-10 page.tsx third section | MUST | 0.5d |
+| **Total MUST** | | **8.0d** |
+| **Total with SHOULD** | | **10.0d** |
+
+Fits comfortably in a 2-week sprint.
+
+---
+
+**Updated**: 2026-06-06  
+**Replaces**: Fake planning-session `SPRINT_3_COMPLETE.md` (2026-05-29, never built)

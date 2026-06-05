@@ -65,10 +65,11 @@ class ImageToAudioPipeline:
             # Step 2: Map to audio parameters
             audio_params = self.mapper.image_to_audio_params(image_features, mode, style)
             
-            # Step 3: Synthesize audio
-            duration = min(duration, 60.0)  # Max 60 seconds
-            synth = self.synth.__class__(sr=22050, duration=duration)
-            waveform = synth.synthesize(audio_params)
+            # Step 3: Synthesize audio — reuse self.synth with correct duration
+            duration = min(duration, 60.0)
+            self.synth.duration = duration
+            self.synth.num_samples = int(self.synth.sr * duration)
+            waveform = self.synth.synthesize(audio_params)
             
             # Step 4: Safety validation
             waveform, safety_flags = self._apply_safety_checks(waveform)
@@ -201,9 +202,10 @@ class ImageToAudioPipeline:
                 "intensity": 0.6,
             }
             
-            # Generate fallback audio
-            synth = self.synth.__class__(sr=22050, duration=min(duration, 60))
-            waveform = synth.synthesize(fallback_params)
+            # Generate fallback audio — reuse self.synth
+            self.synth.duration = min(duration, 60)
+            self.synth.num_samples = int(self.synth.sr * self.synth.duration)
+            waveform = self.synth.synthesize(fallback_params)
             waveform, _ = self._apply_safety_checks(waveform)
             
             return {

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import UploadZone from "../components/UploadZone";
+import SpectrogramUploadZone from "../components/SpectrogramUploadZone";
 
 export default function Home() {
   const [mode, setMode] = useState<"classic" | "creative">("classic");
@@ -31,7 +32,7 @@ export default function Home() {
         <h1 className="text-6xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent mb-2">
           SpectraVerse
         </h1>
-        <p className="text-xl text-gray-300">Hear images. Visualize music. Create magic.</p>
+        <p className="text-xl text-gray-300">Hear images. Visualize music. Decode spectrograms.</p>
       </motion.div>
 
       {/* Mode & Style Selector */}
@@ -87,12 +88,12 @@ export default function Home() {
         )}
       </motion.div>
 
-      {/* Upload Zones */}
+      {/* Section 1 & 2: Image↔Audio transforms */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.4 }}
-        className="max-w-6xl mx-auto grid md:grid-cols-2 gap-8"
+        className="max-w-6xl mx-auto grid md:grid-cols-2 gap-8 mb-12"
       >
         <div>
           <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
@@ -109,14 +110,44 @@ export default function Home() {
         </div>
       </motion.div>
 
-      {/* Footer */}
+      {/* Section 3: Spectrogram → Audio (teal theme) */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.6 }}
+        className="max-w-6xl mx-auto"
+      >
+        {/* Divider */}
+        <div className="flex items-center gap-4 mb-8">
+          <div className="h-px flex-1 bg-gradient-to-r from-transparent via-teal-500/40 to-transparent" />
+          <span className="text-xs font-semibold text-teal-500 uppercase tracking-widest px-3">
+            Spectrogram Inversion
+          </span>
+          <div className="h-px flex-1 bg-gradient-to-r from-transparent via-teal-500/40 to-transparent" />
+        </div>
+
+        <div className="max-w-2xl mx-auto">
+          <div className="mb-4">
+            <h2 className="text-2xl font-bold flex items-center gap-2 text-teal-300">
+              <span>🔬</span> Spectrogram → Audio
+            </h2>
+            <p className="text-sm text-gray-400 mt-1">
+              Upload any mel or STFT spectrogram image — a screenshot, export, or photo —
+              and hear the audio reconstructed from it using Griffin-Lim inversion.
+            </p>
+          </div>
+          <SpectrogramUploadZone />
+        </div>
+      </motion.div>
+
+      {/* Footer */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.8 }}
         className="max-w-6xl mx-auto mt-16 text-center text-gray-400"
       >
-        <p>✨ AI-powered multimodal transformation within Azure's free trial budget</p>
+        <p>✨ AI-powered multimodal transformation · Spectrogram inversion via Griffin-Lim</p>
       </motion.div>
     </main>
   );

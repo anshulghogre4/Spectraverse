@@ -15,6 +15,21 @@ class AudioAnalyzer:
     def __init__(self, sr: int = 22050):
         self.sr = sr
     
+    def analyze_bytes(self, audio_data: bytes) -> Dict[str, Any]:
+        """Analyze audio from raw bytes by writing to a temp file."""
+        import tempfile, os
+        tmp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        try:
+            tmp.write(audio_data)
+            tmp.flush()
+            tmp.close()
+            return self.analyze(tmp.name)
+        finally:
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
+
     def analyze(self, audio_path: str) -> Dict[str, Any]:
         """
         Comprehensive audio analysis returning all semantic features.

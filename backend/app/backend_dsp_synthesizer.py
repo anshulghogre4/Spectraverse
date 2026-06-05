@@ -24,73 +24,91 @@ class DSPSynthesizer:
     def synthesize(self, params: Dict[str, Any]) -> np.ndarray:
         """
         Synthesize audio from parameters.
-        
-        Args:
-            params: {
-                "pitch": 220,  # Hz
-                "bpm": 90,
-                "instruments": ["pad", "piano"],
-                "reverb": 0.4,
-                "intensity": 0.7,
-                "effects": ["reverb", "compression"]
-            }
-        
-        Returns:
-            Normalized audio waveform (np.ndarray)
         """
         waveform = np.zeros(self.num_samples)
-        
-        # Extract parameters
-        pitch = params.get("pitch", 220)
-        bpm = params.get("bpm", 90)
-        instruments = params.get("instruments", ["pad"])
-        reverb_amount = params.get("reverb", 0.3)
-        intensity = params.get("intensity", 0.5)
-        
-        # Generate base waveform
+
+        pitch        = float(params.get("pitch", 220))
+        bpm          = float(params.get("bpm", 90))
+        instruments  = params.get("instruments", ["pad"])
+        reverb_amount= float(params.get("reverb", 0.3))
+        intensity    = float(params.get("intensity", 0.5))
+        complexity   = float(params.get("complexity", 0.5))
+        effects      = params.get("effects", [])
+
         t = np.linspace(0, self.duration, self.num_samples)
-        
-        # Sine wave base (fundamental)
-        waveform += 0.3 * np.sin(2 * np.pi * pitch * t)
-        
-        # Add harmonics (2x, 3x frequency for brightness)
-        if intensity > 0.5:
-            waveform += 0.15 * np.sin(2 * np.pi * pitch * 2 * t)
-            waveform += 0.1 * np.sin(2 * np.pi * pitch * 3 * t)
-        
-        # Add ambient pad (low-frequency oscillation)
-        if "pad" in instruments:
-            waveform += 0.2 * np.sin(2 * np.pi * (pitch / 4) * t) * np.exp(-t / 10)
-        
-        # Add piano envelope (attack-decay)
-        if "piano" in instruments:
-            attack_time = 0.01
-            decay_time = 0.5
-            attack_samples = int(attack_time * self.sr)
-            decay_start = attack_samples
-            
-            envelope = np.ones_like(t)
-            envelope[:attack_samples] = np.linspace(0, 1, attack_samples)
-            
-            decay_len = int(decay_time * self.sr)
-            decay_end = min(decay_start + decay_len, self.num_samples)
-            envelope[decay_start:decay_end] = np.exp(-np.linspace(0, 5, decay_end - decay_start))
-            
-            waveform += 0.25 * np.sin(2 * np.pi * pitch * t) * envelope
-        
-        # Apply reverb (simple echo)
+
+        # ── Fundamental tone ──────────────────────────────────────────────
+        waveform += intensity * 0.35 * np.sin(2 * np.pi * pitch * t)
+
+        # ── Harmonics — more harmonics = brighter, busier sound ──────────
+        n_harmonics = max(1, int(complexity * 6))
+        for h in range(2, 2 + n_harmonics):
+            amp = intensity * (0.2 / h)
+            waveform += amp * np.sin(2 * np.pi * pitch * h * t)
+
+        # ── BPM-driven rhythmic pulse ─────────────────────────────────────
+        beat_hz = bpm / 60.0
+        # Amplitude modulation at beat rate — fast BPM = more energetic pulsing
+        beat_env = 0.5 + 0.5 * np.sin(2 * np.pi * beat_hz * t)
+        waveform *= (0.6 + 0.4 * beat_env)
+
+        # ── Instrument layers ──────────────────────────────────────────────
+        if "pad" in instruments or "strings" in instruments or "synth_pad" in instruments:
+            # Slow attack swell — lush, ambient
+            swell = 1 - np.exp(-t / (self.duration * 0.15))
+            waveform += 0.18 * np.sin(2 * np.pi * (pitch * 0.5) * t) * swell
+
+        if "piano" in instruments or "vibraphone" in instruments:
+            # Percussive attack-decay per beat
+            beat_samples = int(self.sr / beat_hz)
+            envelope = np.zeros(self.num_samples)
+            for onset in range(0, self.num_samples, beat_samples):
+                length = min(beat_samples, self.num_samples - onset)
+                decay = np.exp(-np.linspace(0, 6, length))
+                envelope[onset:onset + length] += decay
+            waveform += 0.22 * np.sin(2 * np.pi * pitch * 1.5 * t) * envelope
+
+        if "organ" in instruments or "cello" in instruments:
+            # Warm sub-octave with vibrato
+            vibrato = np.sin(2 * np.pi * 5.5 * t) * 0.005
+            waveform += 0.15 * np.sin(2 * np.pi * (pitch * 0.5 + vibrato) * t)
+
+        if "guitar" in instruments or "flute" in instruments:
+            # Mid-range pluck — odd harmonics only (hollow tone)
+            for h in [1, 3, 5]:
+                waveform += (0.12 / h) * np.sin(2 * np.pi * pitch * h * t) * np.exp(-t * 1.2)
+
+        # ── Effects ───────────────────────────────────────────────────────
+        if "distortion" in effects:
+            waveform = np.tanh(waveform * 3.0) * 0.7
+
+        if "delay" in effects:
+            delay_samples = int(0.3 * self.sr)
+            if delay_samples < self.num_samples:
+                delayed = np.zeros_like(waveform)
+                delayed[delay_samples:] = waveform[:-delay_samples] * 0.45
+                waveform = waveform + delayed
+
+        if "compression" in effects:
+            # Simple soft knee compression
+            threshold = 0.4
+            above = np.abs(waveform) > threshold
+            waveform[above] = np.sign(waveform[above]) * (
+                threshold + (np.abs(waveform[above]) - threshold) * 0.4
+            )
+
+        # ── Reverb (echo) ─────────────────────────────────────────────────
         if reverb_amount > 0:
-            delay_samples = int(0.5 * self.sr)
-            delayed = np.zeros_like(waveform)
-            delayed[delay_samples:] = waveform[:-delay_samples]
-            waveform = waveform + reverb_amount * delayed
-        
-        # Safety: Normalize
+            delay_samp = int(0.45 * self.sr)
+            if delay_samp < self.num_samples:
+                delayed = np.zeros_like(waveform)
+                delayed[delay_samp:] = waveform[:-delay_samp]
+                waveform = waveform + reverb_amount * delayed
+
+        # ── Normalise + soft-limit ────────────────────────────────────────
         waveform = self._normalize(waveform)
-        
-        # Apply gentle limiting (prevent clipping)
         waveform = self._soft_limit(waveform)
-        
+
         return waveform
     
     def _normalize(self, waveform: np.ndarray) -> np.ndarray:
