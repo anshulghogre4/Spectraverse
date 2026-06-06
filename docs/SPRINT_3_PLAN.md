@@ -1,286 +1,202 @@
-# Sprint 3 Plan — Spectrogram Inversion: See a Conversation, Hear It Back
+# Sprint 3 Plan — Foundry IQ + Spectrogram Inversion
 
-**Re-assessed**: 2026-06-06  
-**Status**: 📋 PLANNED — ready to build after Sprint 2 verified  
-**Duration**: 2 weeks  
+**Re-assessed**: 2026-06-06
+**Status**: 🚧 IN PROGRESS — backend agent + UI shipped, Azure provisioning pending
+**Duration**: 2 weeks
 **Depends on**: Sprint 2 ✅
 
 ---
 
 ## Sprint Goal
 
-> User uploads a **spectrogram image** — a screenshot, export, or photo of any mel/linear/STFT
-> spectrogram — and hears the **reconstructed speech or audio** from it with crystal clarity.
-> This closes the loop: SpectraVerse can now both *create* spectrograms from audio AND
-> *invert* spectrograms back into audio.
+> Make SpectraVerse **agentic and explainable**. Image-to-audio generation runs through
+> a 3-stage Microsoft Foundry pipeline (GPT-4o vision → Foundry IQ knowledge base →
+> GPT-4o-mini parameter mapping) and returns audio **plus citations** showing exactly
+> which music-theory sources informed every decision. The user can also reconstruct
+> audio from a spectrogram screenshot using research-backed presets.
 
 ---
 
-## The Core Idea — Why This Is Powerful
+## What's Built So Far
 
-A spectrogram is not just a visualisation. It is a **lossless (or near-lossless) encoding
-of sound** — every frequency, every moment, every harmonic is right there in the image.
-A conversation recorded as a spectrogram can be reconstructed back into speech.
+### Backend (`backend/app/`)
 
-**Real-world use cases:**
-- Forensic audio — a spectrogram screenshot from a video is all you need
-- Accessibility — convert spectrogram diagrams from papers into audible audio
-- Music production — reconstruct a melody from a handwritten or photographed score spectrogram
-- Competition demo highlight — "upload ANY spectrogram image and hear what it sounds like"
+| File | Purpose |
+|---|---|
+| `backend_foundry_agent.py` | 3-stage pipeline: `describe_image` → `query_knowledge` → `extract_params`. Each stage degrades to a deterministic mock when Azure env vars are missing — meaning the app runs end-to-end with zero Azure setup |
+| `backend_spectrogram_detector.py` | 5-signal heuristic: banding, colormap match, aspect ratio, saturation, edge direction |
+| `backend_spectrogram_preprocessor.py` | Entropy-based axis crop + LUT colormap inversion (viridis/magma/plasma/inferno/hot/jet) |
+| `backend_spectrogram_inverter.py` | Griffin-Lim inversion with **3 presets** extracted from real source code: `librosa_mel`, `chrome_music_lab`, `wikipedia_speech` |
+| `main.py` | New endpoint `/api/generate/image-to-audio-foundry` returns audio + citations + reasoning chain |
+
+### Frontend (`frontend/`)
+
+| File | Purpose |
+|---|---|
+| `lib/api.ts` | `generateImageToAudioFoundry()` + `FoundryGenerationResult` / `FoundryCitation` / `FoundryReasoningStep` types |
+| `components/FoundryReasoningPanel.tsx` | Renders the 3-stage chain-of-thought with vision description, reasoning steps colour-coded by stage, and footnoted citations |
+| `components/UploadZone.tsx` | Foundry IQ on/off toggle (image flow only). Toggle ON → grounds generation in cited music theory. Toggle OFF → uses local heuristics |
+| `components/SpectrogramUploadZone.tsx` | Preset picker (librosa_mel / Chrome Music Lab / Speech) + colormap selector + quality slider |
+| `components/VisualOutputPanel.tsx` | **8 distinct render modes** (orbits / flow_field / lightning / horror / aurora / bass_pulse / mandala / glitch) — completely different visuals per creative style |
+
+### Knowledge base (`data/knowledge_base/`)
+
+Four reference documents, ready to index in Foundry IQ:
+
+1. `01_music_theory_keys.md` — major/minor key emotional associations, modal scales, image→key mapping rules
+2. `02_music_theory_intervals.md` — consonance/dissonance, style-specific intervals
+3. `03_synesthesia_research.md` — Scriabin/Messiaen/Rimsky-Korsakov mappings, cross-modal correspondence research
+4. `04_film_score_techniques.md` — practical sound design for all 7 creative styles
 
 ---
 
-## Chain-of-Thought: How Spectrogram Inversion Works
+## How the Foundry Pipeline Works
 
 ```
-Step 1 — Detect
-  Is the uploaded image a spectrogram? (frequency axis, time axis, colour gradient)
-  vs a regular photo?
-  → Classifier: aspect ratio + colour distribution + horizontal banding heuristic
-
-Step 2 — Pre-process
-  Crop axes/labels, normalise pixel intensities to dB scale
-  Resize to standard time×frequency bins (e.g. 128 mel bins × N time frames)
-  Invert colour map (viridis/magma → linear magnitude)
-
-Step 3 — Invert
-  Option A (no AI): Griffin-Lim algorithm
-    - librosa.griffinlim() estimates missing phase from magnitude
-    - 32-64 iterations for good quality
-    - Works on any spectrogram, no model needed
-
-  Option B (AI quality): Neural vocoder
-    - HiFi-GAN or Vocos pre-trained model
-    - Near phone-quality reconstruction for speech
-    - Requires ~100MB model download (one-time)
-
-Step 4 — Post-process
-  Bandpass filter (remove artefacts outside 50Hz–16kHz)
-  Loudness normalise to -14 LUFS
-  Return as WAV
-
-Step 5 — Display
-  Side-by-side: original spectrogram image + re-generated spectrogram of the output
-  "Before" vs "After" shows how faithfully the inversion worked
-  Audio player with the reconstructed speech/audio
-```
-
----
-
-## Tasks
-
-### Backend
-
-#### s3-01 · Spectrogram detector — is this image a spectrogram? `[MUST · 1d]`
-**Why**: The existing `/api/analyze-image` treats all images as photos. We need to route
-spectrogram images to the inversion pipeline, not the vision analyser.  
-**Done when**: `POST /api/detect-spectrogram` returns `{"is_spectrogram": true/false, "confidence": 0.0-1.0, "type": "mel|linear|stft|unknown"}`. Correctly identifies a viridis mel-spectrogram as `true` and a sunset photo as `false` in manual testing.  
-**How**: Heuristics — aspect ratio > 2:1, dominant colour gradient (not natural colours), horizontal banding pattern detected via row-variance analysis.  
-**Files**: `backend/app/backend_spectrogram_detector.py` (new), `backend/app/main.py`
-
----
-
-#### s3-02 · Spectrogram pre-processor — pixel → magnitude array `[MUST · 1.5d]`
-**Why**: Griffin-Lim needs a numpy magnitude array, not a PNG. Raw pixel values encode
-colour map (viridis, magma, etc.) not raw dB values — must invert the colour map first.  
-**Done when**: `SpectrogramPreprocessor.extract_magnitude(image_bytes)` returns a numpy
-`float32` array of shape `(n_mels, n_frames)` with values in range `[0, 1]`. Unit test
-confirms round-trip: synthesise audio → generate spectrogram → extract magnitude →
-the resulting shape matches the expected mel bins.  
-**Handles**: auto-detect colour map (viridis/magma/inferno/plasma), auto-crop axis labels
-(detect and remove left/bottom margins), normalise to 0–1.  
-**Files**: `backend/app/backend_spectrogram_preprocessor.py` (new)
-
----
-
-#### s3-03 · Griffin-Lim inversion engine `[MUST · 1d]`
-**Why**: The primary reconstruction algorithm. No model download needed — `librosa.griffinlim()`
-is already installed.  
-**Done when**: `SpectrogramInverter.invert_griffin_lim(magnitude, sr=22050)` returns a
-`float32` numpy waveform. For a mel-spectrogram generated from a 440 Hz sine wave, the
-reconstructed audio has a dominant frequency within ±50 Hz of 440 Hz (verified via FFT peak).  
-**Parameters**: 64 iterations (quality/speed tradeoff), hop_length=512, n_fft=2048.  
-**Files**: `backend/app/backend_spectrogram_inverter.py` (new)
-
----
-
-#### s3-04 · Wire `/api/invert-spectrogram` endpoint `[MUST · 1d]`
-**Why**: The endpoint that ties detection → preprocessing → inversion → safety → WAV encoding.  
-**Done when**: `POST /api/invert-spectrogram` with a mel-spectrogram PNG returns:
-```json
-{
-  "status": "success",
-  "audio_b64": "<base64 WAV>",
-  "sample_rate": 22050,
-  "duration": 3.2,
-  "reconstruction_method": "griffin_lim",
-  "confidence": 0.87,
-  "spectrogram_type": "mel",
-  "comparison_spectrogram": "<base64 PNG of re-synthesised spectrogram>"
-}
-```
-`audio_b64` decodes to a RIFF WAV. If the image is not a spectrogram, returns HTTP 422
-with `{"detail": "Image does not appear to be a spectrogram (confidence: 0.23)"}`.  
-**Files**: `backend/app/main.py`
-
----
-
-#### s3-05 · Neural vocoder (HiFi-GAN) — optional high-quality path `[SHOULD · 2d]`
-**Why**: Griffin-Lim produces phase artefacts (metallic/echo-y sound). For speech spectrograms,
-HiFi-GAN (pre-trained on LJSpeech) produces near-phone-quality reconstruction.  
-**Done when**: When `HIFIGAN_AVAILABLE=true` (model downloaded), the endpoint uses HiFi-GAN
-by default. Falls back to Griffin-Lim if model absent. Response includes
-`"reconstruction_method": "hifigan"`.  
-**Model**: `speechbrain/tts-hifigan-ljspeech` (~50MB) via HuggingFace `transformers`.  
-**New dep**: `transformers>=4.35.0`, `torch>=2.0.0` (already in `requirements-extras.txt`).  
-**Files**: `backend/app/backend_spectrogram_inverter.py`, `backend/requirements-extras.txt`
-
----
-
-#### s3-06 · Integration tests for inversion endpoint `[MUST · 0.5d]`
-**Done when**: 3 tests pass — (1) POST a mel-spectrogram PNG generated by the backend itself
-→ `audio_b64` starts with RIFF; (2) POST a sunset photo → HTTP 422; (3) POST a corrupt PNG →
-HTTP 400.  
-**Files**: `backend/tests/test_api.py`
-
----
-
-### Frontend
-
-#### s3-07 · `SpectrogramUploadZone` component — detect & route `[MUST · 1d]`
-**Why**: The existing UploadZone treats all images as photos. The spectrogram path needs a
-distinct UI: show the original spectrogram image, call `/api/invert-spectrogram`, display
-side-by-side comparison.  
-**Done when**: A third upload zone labelled "Spectrogram → Audio" appears on the page.
-After upload, calls `/api/detect-spectrogram` and shows a confidence badge. If confirmed,
-shows a "Reconstruct Audio" button. After generation, shows a two-column view:
-original spectrogram image on the left, re-synthesised spectrogram on the right, with
-the audio player between them.  
-**Files**: `frontend/components/SpectrogramUploadZone.tsx` (new)
-
----
-
-#### s3-08 · `InversionOutputPanel` — before/after comparison `[MUST · 1d]`
-**Why**: The "wow moment" for this feature is seeing the original spectrogram and the
-reconstructed one side by side, proving the algorithm faithfully recovered the audio.  
-**Done when**: Component renders: (1) "Original" spectrogram image at full width; (2) audio
-player with reconstructed audio; (3) "Re-synthesised" spectrogram from the backend response;
-(4) a `confidence` badge (green ≥ 0.8, yellow ≥ 0.5, red < 0.5); (5) reconstruction method
-badge (Griffin-Lim / HiFi-GAN).  
-**Files**: `frontend/components/InversionOutputPanel.tsx` (new)
-
----
-
-#### s3-09 · Add inversion API functions to `lib/api.ts` `[MUST · 0.5d]`
-**Done when**: `detectSpectrogram(file)` and `invertSpectrogram(file)` exported from `lib/api.ts`
-with full TypeScript types. `InversionResult` type includes `audio_b64`, `confidence`,
-`spectrogram_type`, `comparison_spectrogram`, `reconstruction_method`.  
-**Files**: `frontend/lib/api.ts`
-
----
-
-#### s3-10 · Add "Spectrogram → Audio" section to `page.tsx` `[MUST · 0.5d]`
-**Done when**: Page has three sections: Image→Audio | Audio→Visual | Spectrogram→Audio.
-The third section has a distinct teal/cyan colour theme to visually separate it.  
-**Files**: `frontend/app/page.tsx`
-
----
-
-## Technical Deep Dive: Griffin-Lim for Speech
-
-```
-Conversation spectrogram (image)
+User uploads image + clicks "Generate with Foundry IQ" toggle
          │
-         ▼ SpectrogramPreprocessor
-  Crop axis labels (margin detection)
-  Detect colour map (viridis/magma/hot)
-  Invert colour map → linear magnitude [0, 1]
-  Convert to dB scale → S_db
-  Convert to power → S_power = librosa.db_to_power(S_db)
-  Convert to mel magnitude → S_mel (shape: 128 × T)
+         ▼
+┌────────────────────────────────────────────────────────┐
+│  Stage 1 — VISION                                      │
+│  GPT-4o sees the image                                 │
+│  Returns: "A stormy sea at twilight, dark blues and    │
+│            violets, conveying turbulence and isolation"│
+└────────────────────────────────────────────────────────┘
          │
-         ▼ SpectrogramInverter.invert_griffin_lim()
-  librosa.feature.inverse.mel_to_audio(
-      S_mel,
-      sr=22050,
-      n_fft=2048,
-      hop_length=512,
-      n_iter=64        ← more iterations = better phase estimation
-  )
-  # This internally runs Griffin-Lim on the mel-inverted STFT
+         ▼
+┌────────────────────────────────────────────────────────┐
+│  Stage 2 — RETRIEVAL (Foundry IQ)                      │
+│  Knowledge base agentic retrieval                      │
+│  Decomposes query into sub-queries:                    │
+│   - "musical key for turbulent isolation?"             │
+│   - "stormy emotional film scoring?"                   │
+│   - "blue-violet colour synesthesia mapping?"          │
+│  Returns 3 citations from indexed docs                 │
+└────────────────────────────────────────────────────────┘
          │
-         ▼ Post-processing
-  scipy.signal.butter bandpass (80Hz–16kHz)
-  pyloudnorm LUFS normalisation to -14 LUFS
-  scipy.io.wavfile.write → float32 WAV
+         ▼
+┌────────────────────────────────────────────────────────┐
+│  Stage 3 — MAPPING                                     │
+│  GPT-4o-mini reads description + citations             │
+│  Returns JSON: { key: "D minor", bpm: 65,              │
+│                  instruments: [cello, organ],          │
+│                  reverb: 0.8,                          │
+│                  rationale: "Citation [0] indicates    │
+│                  D minor for tragic seascapes" }       │
+└────────────────────────────────────────────────────────┘
          │
-         ▼ Response
-  base64 WAV + re-synthesised spectrogram PNG
+         ▼
+DSPSynthesizer.synthesize(params)  →  WAV audio
+         │
+         ▼
+Frontend displays:
+  • Audio player
+  • Vision quote ("What the AI saw")
+  • Chain of thought (3 colour-coded steps)
+  • Citations panel with footnotes [0] [1] [2]
 ```
 
-**Expected quality on speech:**
-- Clear enough to understand words at normal speaking pace
-- Some metallic/phase artefacts (Griffin-Lim limitation)
-- HiFi-GAN upgrade removes these entirely for speech
-
 ---
 
-## What Makes This Demo-Ready
+## Graceful Degradation Modes
 
-For the competition a judge can:
-1. Screenshot a spectrogram from **any YouTube video** using browser DevTools (Spectral Analyzer)
-2. Upload that screenshot to SpectraVerse
-3. Hear the audio reconstructed from it
+The app runs end-to-end through 4 levels of Azure setup:
 
-Or more dramatically:
-1. Take a photo of a **printed spectrogram** (from a paper or textbook)
-2. Upload the photo
-3. Hear the audio it encodes
-
----
-
-## Risks
-
-| Severity | Risk | Mitigation |
+| Level | What's set | What happens |
 |---|---|---|
-| 🔴 HIGH | Colour map inversion accuracy — wrong colour map → wrong magnitudes → unrecognisable audio | Auto-detect top-5 colour maps, try each, pick best reconstruction by spectral entropy |
-| 🔴 HIGH | Axis label cropping — labels included in magnitude array add noise | Conservative margin crop (remove bottom 8% and left 6% of pixels by default) |
-| 🟡 MEDIUM | Griffin-Lim quality on noisy spectrograms (hand-drawn, photographed) | Increase iterations to 128 for photographed inputs; add denoising pre-pass |
-| 🟡 MEDIUM | HiFi-GAN model download (~50MB) may be slow on first use | Cache to `~/.cache/spectraverse/` after first download; fallback to Griffin-Lim if absent |
-| 🟡 MEDIUM | Non-mel spectrograms (linear, STFT, CQT) need different inversion paths | Detect type via aspect ratio + frequency scale; implement linear path as Sprint 3B if needed |
+| **Zero Azure** | Nothing | Mock vision description + canned citations + style-map params. UI shows "⚠ mock fallback" badge |
+| **AOAI only** | `AZURE_OPENAI_*` | Real GPT-4o vision + GPT-4o-mini mapping, mock citations |
+| **Search only** | `AZURE_SEARCH_*` | Mock vision, real Foundry IQ retrieval, heuristic mapping |
+| **Full live** | All Azure vars | True end-to-end. UI shows "🔮 Foundry live" badge |
+
+This is intentional — judges can run the demo locally without ever seeing an Azure error, then toggle to live mode for the wow moment.
 
 ---
 
-## Success Metrics
+## To Go Live
 
-1. Griffin-Lim reconstructs a 440 Hz sine tone with dominant FFT peak within ±50 Hz
-2. Speech spectrogram (any English TTS output) reconstructs with >70% word intelligibility (manual listening test)
-3. Sunset photo correctly classified as non-spectrogram (confidence < 0.4)
-4. End-to-end latency (upload → audio) < 8 seconds on warm server
-5. Side-by-side spectrogram comparison visually shows structural similarity
+### 1. Azure provisioning (~15 min, free tier)
+
+1. Sign in to https://ai.azure.com
+2. Create a **Foundry resource** (free)
+3. Create a **project** within it
+4. Deploy two models: `gpt-4o` and `gpt-4o-mini`
+5. Create an **Azure AI Search** resource (free tier — 50 MB storage)
+6. Connect the search service to your Foundry project
+
+### 2. Index the knowledge base
+
+In Foundry portal → Build → Knowledge tab:
+1. Create knowledge base named `spectraverse-music-theory-kb`
+2. Add a knowledge source pointing to `data/knowledge_base/`
+3. Foundry handles chunking + embedding automatically
+
+### 3. Set env vars
+
+Copy `.env.example` → `backend/.env` and fill in:
+```
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+AZURE_OPENAI_API_KEY=...
+AZURE_OPENAI_GPT4O_DEPLOYMENT=gpt-4o
+AZURE_OPENAI_GPT4O_MINI_DEPLOYMENT=gpt-4o-mini
+AZURE_SEARCH_ENDPOINT=https://your-search-svc.search.windows.net
+AZURE_SEARCH_API_KEY=...
+FOUNDRY_KB_NAME=spectraverse-music-theory-kb
+FOUNDRY_KS_NAME=music-theory-ks
+```
+
+### 4. Install Azure SDKs
+
+```bash
+pip install --pre "azure-search-documents>=11.7.0b2" "azure-identity>=1.17.0" "openai>=1.55.0"
+```
+
+### 5. Restart the backend
+
+```bash
+uvicorn app.main:app --reload --port 8000
+```
+
+`GET /health` will now report `foundry.is_fully_live: true`.
 
 ---
 
-## Effort Summary
+## Cost Estimate
 
-| Task | Priority | Effort |
+| Item | Free tier | Beyond free |
 |---|---|---|
-| s3-01 Spectrogram detector | MUST | 1.0d |
-| s3-02 Pre-processor (pixel → magnitude) | MUST | 1.5d |
-| s3-03 Griffin-Lim inverter | MUST | 1.0d |
-| s3-04 `/api/invert-spectrogram` endpoint | MUST | 1.0d |
-| s3-05 HiFi-GAN neural vocoder | SHOULD | 2.0d |
-| s3-06 Integration tests | MUST | 0.5d |
-| s3-07 SpectrogramUploadZone component | MUST | 1.0d |
-| s3-08 InversionOutputPanel (before/after) | MUST | 1.0d |
-| s3-09 API client functions | MUST | 0.5d |
-| s3-10 page.tsx third section | MUST | 0.5d |
-| **Total MUST** | | **8.0d** |
-| **Total with SHOULD** | | **10.0d** |
-
-Fits comfortably in a 2-week sprint.
+| Foundry resource | Free | Free |
+| Azure AI Search | 50 MB / 3 indexes | $0 covers our 4-doc KB |
+| GPT-4o vision | $200 free credit covers ~30,000 calls | ~$0.001 per image |
+| GPT-4o-mini mapping | $200 covers ~150,000 calls | ~$0.0002 per call |
+| Foundry IQ retrieval | Free tier covers thousands of queries | Pennies |
+| **Total demo** | **$0** | **<$5 for the entire competition season** |
 
 ---
 
-**Updated**: 2026-06-06  
-**Replaces**: Fake planning-session `SPRINT_3_COMPLETE.md` (2026-05-29, never built)
+## Demo Script (90 seconds)
+
+1. **(0:00–0:10)** Open the app. Upload a stormy ocean photo.
+2. **(0:10–0:20)** Toggle **🧠 Foundry IQ · ON**. Click **Generate with Foundry IQ**.
+3. **(0:20–0:35)** Three stages animate in:
+   - "What the AI saw" quote — GPT-4o description
+   - Chain of thought — vision (blue) → retrieval (purple) → mapping (green)
+4. **(0:35–0:45)** Citations panel appears. Click [0] — sees "D minor for tragic seascapes" from `01_music_theory_keys.md`. Click [2] — sees Scriabin synesthesia mapping for blue-violet.
+5. **(0:45–1:00)** Audio plays — D minor cello + organ + heavy reverb.
+6. **(1:00–1:15)** Toggle **OFF**. Regenerate. Same image, but now uses local heuristics — different output, no citations. Side-by-side comparison shows the value.
+7. **(1:15–1:30)** Switch to spectrogram inversion section. Pick **Wikipedia spectrogram** preset. Upload the famous "nineteenth century" PNG. Audio plays back — voice-like reconstruction.
+
+---
+
+## What's Deferred to Sprint 4
+
+- **Vocos neural vocoder** — would lift speech intelligibility from ~30% to ~75% on real spectrograms (requires `pip install vocos`, ~17 MB model download)
+- **Foundry Agent Service** — turn the 3-stage pipeline into a deployed agent (currently runs in-process)
+- **Multi-agent orchestration** — separate vision agent, theory agent, composer agent
+- **Knowledge base auto-refresh** — schedule indexer to pick up new docs in `data/knowledge_base/`
+- **Caching layer** — Redis cache for repeated images / descriptions
+
+---
+
+**Updated**: 2026-06-06 — Foundry agent integration shipped with mock fallback
+**Next**: Provision Azure resources to flip from mock to live

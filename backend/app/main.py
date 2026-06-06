@@ -140,6 +140,20 @@ except Exception as e:
     _spec_detector = None
     _spec_inverter = None
 
+# ── Foundry IQ agent (Sprint 3) ────────────────────────────────────────────
+try:
+    from app.backend_foundry_agent import (
+        FoundryAgent,
+        build_foundry_pipeline_response,
+    )
+    _foundry_agent: Any = FoundryAgent()
+    FOUNDRY_AGENT_AVAILABLE = True
+except Exception as e:
+    print(f"⚠️  FoundryAgent unavailable: {e}")
+    FOUNDRY_AGENT_AVAILABLE = False
+    _foundry_agent = None
+    build_foundry_pipeline_response = None  # type: ignore
+
 # ── WAV encoding helper ────────────────────────────────────────────────────
 
 def _encode_wav_b64(waveform: Any, sample_rate: int = 22050) -> str:
@@ -235,7 +249,11 @@ async def health():
             "image_pipeline": IMAGE_PIPELINE_AVAILABLE,
             "audio_pipeline": AUDIO_PIPELINE_AVAILABLE,
             "spectrogram_inversion": SPECTROGRAM_INVERSION_AVAILABLE,
+            "foundry_agent": FOUNDRY_AGENT_AVAILABLE,
         },
+        "foundry": (
+            _foundry_agent.capabilities() if FOUNDRY_AGENT_AVAILABLE and _foundry_agent else None
+        ),
         "redis": _redis_client is not None,
     }
 
@@ -421,6 +439,93 @@ async def generate_image_to_audio(
         "style": style,
     }
 
+# ── Generate: Image → Audio with Foundry IQ (Sprint 3) ─────────────────────
+
+@app.post("/api/generate/image-to-audio-foundry")
+async def generate_image_to_audio_foundry(
+    file: UploadFile = File(...),
+    mode: str = "classic",
+    style: str = "",
+    duration: float = 15.0,
+):
+    """
+    Same as /api/generate/image-to-audio, but routes the parameter decision
+    through the Foundry IQ pipeline:
+
+      1. GPT-4o vision → rich semantic description of the image
+      2. Foundry IQ knowledge base → music-theory citations grounded in research
+      3. GPT-4o-mini → maps description + citations to DSP params
+
+    Returns audio plus the reasoning chain and citations so the UI can render
+    the agent's chain-of-thought with footnoted sources.
+
+    Degrades gracefully: if Azure env vars are missing, returns mock citations
+    and uses heuristic mapping. The is_mock flag tells the client what happened.
+    """
+    if not (FOUNDRY_AGENT_AVAILABLE and _foundry_agent and build_foundry_pipeline_response):
+        raise HTTPException(
+            status_code=503,
+            detail="Foundry agent unavailable — backend_foundry_agent module not loaded",
+        )
+    if not (IMAGE_PIPELINE_AVAILABLE and _image_pipeline and _dsp_synthesizer):
+        raise HTTPException(
+            status_code=503,
+            detail="Image pipeline unavailable — VisionAnalyzer/SemanticMapper/DSPSynthesizer missing",
+        )
+    if file.content_type not in ["image/png", "image/jpeg", "image/webp"]:
+        raise HTTPException(status_code=400, detail="Use PNG, JPEG, or WEBP.")
+
+    duration = max(1.0, min(duration, 15.0))
+    image_bytes = await file.read()
+
+    loop = asyncio.get_event_loop()
+
+    def _run() -> Dict[str, Any]:
+        # 1. Cheap local feature extraction for heuristic fallback
+        image_features: Dict[str, Any] = {}
+        try:
+            image_features = _vision_analyzer.analyze(image_bytes) if _vision_analyzer else {}
+        except Exception as e:
+            logger_name = "spectraverse.foundry"
+            import logging as _lg
+            _lg.getLogger(logger_name).warning("VisionAnalyzer failed: %s", e)
+
+        # 2. Run the 3-stage Foundry pipeline
+        foundry_response = build_foundry_pipeline_response(
+            _foundry_agent,
+            image_bytes,
+            style=style,
+            image_features=image_features,
+        )
+        audio_params = foundry_response["audio_params"]
+
+        # 3. Synthesise audio using the grounded params (reuse self.synth correctly)
+        _dsp_synthesizer.duration = duration
+        _dsp_synthesizer.num_samples = int(_dsp_synthesizer.sr * duration)
+        waveform = _dsp_synthesizer.synthesize(audio_params)
+
+        # 4. Encode WAV
+        audio_b64 = _encode_wav_b64(waveform, _dsp_synthesizer.sr)
+
+        return {
+            **foundry_response,
+            "audio_b64": audio_b64,
+            "sample_rate": _dsp_synthesizer.sr,
+            "duration": duration,
+            "image_features": image_features,
+            "mode": mode,
+            "style": style,
+            "status": "success",
+        }
+
+    try:
+        result = await loop.run_in_executor(None, _run)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Foundry pipeline failed: {e}")
+
+    return result
+
+
 # ── Generate: Audio → Visual ───────────────────────────────────────────────
 
 @app.post("/api/generate/audio-to-visual")
@@ -496,11 +601,13 @@ async def invert_spectrogram(
     db_min: float = -80.0,
     db_max: float = 0.0,
     n_iter: int = 64,
+    preset: str = "librosa_mel",
 ):
     """
     Reconstruct audio from a spectrogram image using Griffin-Lim inversion.
 
     Query params:
+        preset:   librosa_mel | chrome_music_lab | wikipedia_speech
         colormap: viridis | magma | plasma | inferno | hot | jet (default: viridis)
         db_min:   minimum dB value in the color scale (default: -80)
         db_max:   maximum dB value in the color scale (default: 0)
@@ -542,9 +649,13 @@ async def invert_spectrogram(
         )
         magnitude, prep_meta = preprocessor.extract_magnitude(image_bytes)
 
-        # 4. Invert via Griffin-Lim
+        # 4. Invert via Griffin-Lim (using preset config)
         from app.backend_spectrogram_inverter import SpectrogramInverter
-        inverter = SpectrogramInverter(n_iter=n_iter)
+        try:
+            inverter = SpectrogramInverter.from_preset(preset, n_iter=n_iter)
+        except ValueError:
+            inverter = SpectrogramInverter(n_iter=n_iter)
+
         audio, inv_meta = inverter.invert(magnitude)
 
         # 5. Encode output
@@ -558,6 +669,7 @@ async def invert_spectrogram(
             "duration": inv_meta["duration_seconds"],
             "reconstruction_method": "griffin_lim",
             "n_iter_used": n_iter,
+            "preset_used": preset,
             "colormap_used": effective_colormap,
             "spectrogram_type": detection.get("type", "unknown"),
             "confidence": detection["confidence"],

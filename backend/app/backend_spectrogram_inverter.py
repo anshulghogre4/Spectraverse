@@ -7,7 +7,11 @@ Key findings from research:
 - librosa.feature.inverse.mel_to_audio wraps mel→STFT→Griffin-Lim in one call
 - power=1.0 for amplitude spectrogram (what our preprocessor returns)
 - momentum=0.99 (Fast Griffin-Lim) is default in librosa >= 0.9
-- Run with random_state=42 for reproducibility
+
+Presets (from real-world source code analysis):
+- "librosa_mel": sr=22050, n_mels=128, n_fft=2048, hop=512 (matches docs/examples)
+- "chrome_music_lab": sr=44100, linear FFT 2048, log freq 20-20000Hz
+- "wikipedia_speech": sr=16000, linear FFT 1024, hop=256 (typical for speech)
 """
 
 from __future__ import annotations
@@ -20,11 +24,31 @@ DEFAULT_SR = 22050
 DEFAULT_N_MELS = 128
 DEFAULT_N_FFT = 2048
 DEFAULT_HOP_LENGTH = 512
-DEFAULT_N_ITER = 64   # 64 = good quality/speed tradeoff; use 128 for max quality
+DEFAULT_N_ITER = 64
+
+# Hard input cap to prevent OOM on huge uploads (e.g. 1920×1080 screenshots)
+MAX_INPUT_WIDTH = 1024
+MAX_INPUT_HEIGHT = 256
+
+
+PRESETS: Dict[str, Dict[str, Any]] = {
+    "librosa_mel": {
+        "sr": 22050, "n_mels": 128, "n_fft": 2048, "hop_length": 512,
+        "scale": "mel",
+    },
+    "chrome_music_lab": {
+        "sr": 44100, "n_mels": 256, "n_fft": 2048, "hop_length": 1024,
+        "scale": "log_linear",   # Chrome Music Lab uses linear FFT on log freq display
+    },
+    "wikipedia_speech": {
+        "sr": 16000, "n_mels": 80, "n_fft": 1024, "hop_length": 256,
+        "scale": "linear",
+    },
+}
 
 
 class SpectrogramInverter:
-    """Invert a magnitude mel spectrogram back to audio using Griffin-Lim."""
+    """Invert a magnitude spectrogram back to audio using Griffin-Lim."""
 
     def __init__(
         self,
@@ -33,18 +57,30 @@ class SpectrogramInverter:
         n_fft: int = DEFAULT_N_FFT,
         hop_length: int = DEFAULT_HOP_LENGTH,
         n_iter: int = DEFAULT_N_ITER,
+        scale: str = "mel",
     ):
         self.sr = sr
         self.n_mels = n_mels
         self.n_fft = n_fft
         self.hop_length = hop_length
         self.n_iter = n_iter
+        self.scale = scale  # "mel" | "linear" | "log_linear"
+
+    @classmethod
+    def from_preset(cls, preset: str, n_iter: int = DEFAULT_N_ITER) -> "SpectrogramInverter":
+        if preset not in PRESETS:
+            raise ValueError(f"Unknown preset {preset!r}. Available: {list(PRESETS)}")
+        p = PRESETS[preset]
+        return cls(
+            sr=p["sr"], n_mels=p["n_mels"], n_fft=p["n_fft"],
+            hop_length=p["hop_length"], scale=p["scale"], n_iter=n_iter,
+        )
 
     def invert(self, magnitude: np.ndarray) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Args:
-            magnitude: (H, W) float32 array — mel amplitude spectrogram.
-                       H = mel bins (row 0 = lowest freq), W = time frames.
+            magnitude: (H, W) float32 array — amplitude spectrogram.
+                       H = freq bins (row 0 = lowest freq), W = time frames.
 
         Returns:
             audio: float32 1-D array, normalised to [-1, 1]
@@ -52,31 +88,40 @@ class SpectrogramInverter:
         """
         import librosa
 
-        # Resize to expected mel bins if different from our parameter
-        mag = self._resize_to_mels(magnitude)
+        # Hard cap input to prevent crashes on huge uploads (1920px etc.)
+        mag = self._cap_input_size(magnitude)
+        mag = self._resize_to_mels(mag)
 
-        # Griffin-Lim via librosa's mel_to_audio convenience function.
-        # This internally does:
-        #   1. mel_to_stft (pseudo-inverse of mel filterbank)
-        #   2. griffinlim (phase estimation, n_iter iterations)
-        audio = librosa.feature.inverse.mel_to_audio(
-            mag,
-            sr=self.sr,
-            n_fft=self.n_fft,
-            hop_length=self.hop_length,
-            win_length=self.n_fft,
-            window="hann",
-            center=True,
-            power=1.0,        # amplitude (not power) spectrogram
-            n_iter=self.n_iter,
-        )
+        if self.scale == "linear" or self.scale == "log_linear":
+            # Treat rows as linear STFT bins directly (skip mel filterbank)
+            # Resize rows to (1 + n_fft//2) so it matches librosa.griffinlim's expected shape
+            expected_bins = 1 + self.n_fft // 2
+            mag_stft = self._resize_rows(mag, expected_bins)
+            audio = librosa.griffinlim(
+                mag_stft,
+                n_iter=self.n_iter,
+                hop_length=self.hop_length,
+                win_length=self.n_fft,
+                window="hann",
+                center=True,
+            )
+        else:
+            # Mel inversion (standard librosa path)
+            audio = librosa.feature.inverse.mel_to_audio(
+                mag,
+                sr=self.sr,
+                n_fft=self.n_fft,
+                hop_length=self.hop_length,
+                win_length=self.n_fft,
+                window="hann",
+                center=True,
+                power=1.0,
+                n_iter=self.n_iter,
+            )
 
         audio = audio.astype(np.float32)
-
-        # Fade in/out (5ms) to avoid click artefacts
         audio = self._fade(audio, fade_samples=int(self.sr * 0.005))
 
-        # Normalise to peak -1 dBFS
         peak = float(np.max(np.abs(audio)))
         if peak > 0:
             audio = audio / peak * 0.95
@@ -86,33 +131,32 @@ class SpectrogramInverter:
 
         meta = {
             "reconstruction_method": "griffin_lim",
+            "scale": self.scale,
             "n_iter": self.n_iter,
             "sr": self.sr,
             "n_mels": self.n_mels,
             "n_fft": self.n_fft,
             "hop_length": self.hop_length,
             "input_shape": list(magnitude.shape),
-            "resized_shape": list(mag.shape),
+            "processed_shape": list(mag.shape),
             "duration_seconds": round(duration, 3),
             "peak_amplitude": round(peak, 4),
             "rms": round(rms, 4),
         }
-
         return audio, meta
 
+    # ── Encoding helpers ──────────────────────────────────────────────────
+
     def encode_wav_b64(self, audio: np.ndarray) -> str:
-        """Encode float32 audio to base64 WAV string."""
         import io
         import base64
         import scipy.io.wavfile as wavfile
-
         buf = io.BytesIO()
         wavfile.write(buf, self.sr, audio.astype(np.float32))
         buf.seek(0)
         return base64.b64encode(buf.read()).decode()
 
     def generate_comparison_spectrogram(self, audio: np.ndarray) -> str:
-        """Generate mel spectrogram of the reconstructed audio as base64 PNG."""
         try:
             import librosa
             import matplotlib
@@ -144,21 +188,42 @@ class SpectrogramInverter:
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
-    def _resize_to_mels(self, mag: np.ndarray) -> np.ndarray:
-        """Resize magnitude array rows to self.n_mels using bilinear interpolation."""
-        if mag.shape[0] == self.n_mels:
+    def _cap_input_size(self, mag: np.ndarray) -> np.ndarray:
+        """Downsample huge inputs to prevent OOM / hang on 1920px screenshots."""
+        H, W = mag.shape
+        if H <= MAX_INPUT_HEIGHT and W <= MAX_INPUT_WIDTH:
             return mag
         try:
             from PIL import Image as PILImage
-            # PIL resize: (width, height) = (T, n_mels)
+            target_w = min(W, MAX_INPUT_WIDTH)
+            target_h = min(H, MAX_INPUT_HEIGHT)
+            return np.array(
+                PILImage.fromarray(mag).resize((target_w, target_h), PILImage.BILINEAR),
+                dtype=np.float32,
+            )
+        except Exception:
+            # numpy fallback: simple striding
+            stride_h = max(1, H // MAX_INPUT_HEIGHT)
+            stride_w = max(1, W // MAX_INPUT_WIDTH)
+            return mag[::stride_h, ::stride_w].astype(np.float32)
+
+    def _resize_to_mels(self, mag: np.ndarray) -> np.ndarray:
+        if mag.shape[0] == self.n_mels:
+            return mag
+        return self._resize_rows(mag, self.n_mels)
+
+    def _resize_rows(self, mag: np.ndarray, target_rows: int) -> np.ndarray:
+        if mag.shape[0] == target_rows:
+            return mag
+        try:
+            from PIL import Image as PILImage
             img = PILImage.fromarray(mag).resize(
-                (mag.shape[1], self.n_mels), PILImage.BILINEAR
+                (mag.shape[1], target_rows), PILImage.BILINEAR
             )
             return np.array(img, dtype=np.float32)
         except Exception:
-            # Fallback: numpy linear interpolation along axis 0
-            old_rows = np.linspace(0, mag.shape[0] - 1, self.n_mels)
-            new_mag = np.zeros((self.n_mels, mag.shape[1]), dtype=np.float32)
+            old_rows = np.linspace(0, mag.shape[0] - 1, target_rows)
+            new_mag = np.zeros((target_rows, mag.shape[1]), dtype=np.float32)
             for i, r in enumerate(old_rows):
                 lo = int(r)
                 hi = min(lo + 1, mag.shape[0] - 1)

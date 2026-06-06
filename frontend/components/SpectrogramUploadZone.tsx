@@ -10,6 +10,12 @@ type Phase = 'idle' | 'detecting' | 'detected' | 'inverting' | 'done';
 
 const COLORMAP_OPTIONS = ['viridis', 'magma', 'plasma', 'inferno', 'hot', 'jet'];
 
+const PRESET_OPTIONS = [
+  { id: 'librosa_mel',       label: 'librosa mel',        hint: 'sr 22050 · 128 mel · most matplotlib spectrograms' },
+  { id: 'chrome_music_lab',  label: 'Chrome Music Lab',   hint: 'sr 44100 · log-linear · 20Hz–20kHz, FFT 2048' },
+  { id: 'wikipedia_speech',  label: 'Speech / Wikipedia', hint: 'sr 16000 · linear FFT 1024 · narrow band speech' },
+];
+
 export default function SpectrogramUploadZone() {
   const [isDragging, setIsDragging] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -17,6 +23,7 @@ export default function SpectrogramUploadZone() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [detection, setDetection] = useState<{ confidence: number; colormap_guess: string; type: string } | null>(null);
   const [colormap, setColormap] = useState('viridis');
+  const [preset, setPreset] = useState('librosa_mel');
   const [nIter, setNIter] = useState(64);
   const [result, setResult] = useState<InversionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +91,7 @@ export default function SpectrogramUploadZone() {
     setGenDone(false);
     setError(null);
     try {
-      const res = await invertSpectrogram(file, { colormap, nIter });
+      const res = await invertSpectrogram(file, { colormap, nIter, preset });
       setGenDone(true);
       setResult(res);
       setPhase('done');
@@ -190,6 +197,30 @@ export default function SpectrogramUploadZone() {
               <span className="text-xs text-gray-500">
                 {(detection.confidence * 100).toFixed(0)}% confidence · {detection.type} · guess: {detection.colormap_guess}
               </span>
+            </div>
+
+            {/* Preset picker — drives sr / FFT / scale */}
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">Source preset</label>
+              <div className="grid grid-cols-3 gap-1">
+                {PRESET_OPTIONS.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => setPreset(p.id)}
+                    title={p.hint}
+                    className={`px-2 py-1.5 rounded-lg text-xs font-semibold transition border ${
+                      preset === p.id
+                        ? 'bg-teal-500/20 border-teal-500/50 text-teal-300'
+                        : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-600 hover:text-gray-300'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-gray-600 mt-1 truncate">
+                {PRESET_OPTIONS.find((p) => p.id === preset)?.hint}
+              </p>
             </div>
 
             {/* Settings row */}

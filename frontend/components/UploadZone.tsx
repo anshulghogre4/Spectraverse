@@ -6,15 +6,18 @@ import {
   analyzeImage,
   analyzeAudio,
   generateImageToAudio,
+  generateImageToAudioFoundry,
   generateAudioToVisual,
   type ImageFeatures,
   type AudioFeatures,
   type GenerationResult,
+  type FoundryGenerationResult,
   type VisualGenerationResult,
 } from '../lib/api';
 import AudioOutputPanel from './AudioOutputPanel';
 import VisualOutputPanel from './VisualOutputPanel';
 import GenerationProgress from './GenerationProgress';
+import FoundryReasoningPanel from './FoundryReasoningPanel';
 
 type Props = {
   type: 'image' | 'audio';
@@ -33,6 +36,8 @@ export default function UploadZone({ type, mode, style }: Props) {
   const [showDetails, setShowDetails] = useState(false);
   const [genResult, setGenResult] = useState<GenerationResult | null>(null);
   const [visualResult, setVisualResult] = useState<VisualGenerationResult | null>(null);
+  const [foundryResult, setFoundryResult] = useState<FoundryGenerationResult | null>(null);
+  const [useFoundry, setUseFoundry] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [genDone, setGenDone] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -49,6 +54,7 @@ export default function UploadZone({ type, mode, style }: Props) {
     setAnalysisFeatures(null);
     setGenResult(null);
     setVisualResult(null);
+    setFoundryResult(null);
     setError(null);
     setShowDetails(false);
     setGenDone(false);
@@ -74,6 +80,7 @@ export default function UploadZone({ type, mode, style }: Props) {
     setAnalysisFeatures(null);
     setGenResult(null);
     setVisualResult(null);
+    setFoundryResult(null);
     setGenDone(false);
     if (type === 'image') {
       const reader = new FileReader();
@@ -112,9 +119,16 @@ export default function UploadZone({ type, mode, style }: Props) {
     setError(null);
     try {
       if (type === 'image') {
-        const res = await generateImageToAudio(file, mode, style, 15);
-        setGenDone(true);
-        setGenResult(res);
+        if (useFoundry) {
+          const res = await generateImageToAudioFoundry(file, mode, style, 15);
+          setGenDone(true);
+          setFoundryResult(res);
+          setGenResult(res); // FoundryGenerationResult extends GenerationResult
+        } else {
+          const res = await generateImageToAudio(file, mode, style, 15);
+          setGenDone(true);
+          setGenResult(res);
+        }
       } else {
         const res = await generateAudioToVisual(file, mode, style);
         setGenDone(true);
@@ -252,16 +266,49 @@ export default function UploadZone({ type, mode, style }: Props) {
       {/* Step 2: Generate button */}
       <AnimatePresence>
         {phase === 'analysed' && (
-          <motion.button
+          <motion.div
             initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-            onClick={handleGenerate}
-            className={`w-full py-3 rounded-xl font-semibold transition flex items-center justify-center gap-2 ${generateBtn}`}
+            className="space-y-2"
           >
-            {type === 'image' ? '🎶 Generate Audio' : '✨ Generate Visual'}
-            {mode === 'creative' && style && (
-              <span className="text-xs opacity-70">({style})</span>
+            {/* Foundry IQ toggle — only show for image upload */}
+            {type === 'image' && (
+              <button
+                onClick={() => setUseFoundry(v => !v)}
+                className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-xs transition ${
+                  useFoundry
+                    ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300'
+                    : 'bg-gray-800/40 border-gray-700/60 text-gray-400 hover:text-gray-300'
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  <span>🧠</span>
+                  <span className="font-semibold">
+                    Foundry IQ {useFoundry ? '· ON' : '· OFF'}
+                  </span>
+                  <span className="opacity-70 hidden sm:inline">
+                    {useFoundry ? 'AI reasoning + cited music theory' : 'enable for cited reasoning'}
+                  </span>
+                </span>
+                <span className={`w-8 h-4 rounded-full relative transition-colors ${
+                  useFoundry ? 'bg-emerald-500' : 'bg-gray-600'
+                }`}>
+                  <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${
+                    useFoundry ? 'left-4' : 'left-0.5'
+                  }`} />
+                </span>
+              </button>
             )}
-          </motion.button>
+
+            <button
+              onClick={handleGenerate}
+              className={`w-full py-3 rounded-xl font-semibold transition flex items-center justify-center gap-2 ${generateBtn}`}
+            >
+              {type === 'image' ? (useFoundry ? '🧠 Generate with Foundry IQ' : '🎶 Generate Audio') : '✨ Generate Visual'}
+              {mode === 'creative' && style && (
+                <span className="text-xs opacity-70">({style})</span>
+              )}
+            </button>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -287,6 +334,15 @@ export default function UploadZone({ type, mode, style }: Props) {
       </AnimatePresence>
 
       {/* Results */}
+      {phase === 'done' && foundryResult && (
+        <FoundryReasoningPanel
+          description={foundryResult.image_description}
+          citations={foundryResult.citations}
+          reasoningSteps={foundryResult.reasoning_steps}
+          isFullyLive={foundryResult.is_fully_live}
+          isMock={foundryResult.is_mock}
+        />
+      )}
       {phase === 'done' && genResult && (
         <AudioOutputPanel result={genResult} onReset={clear} />
       )}

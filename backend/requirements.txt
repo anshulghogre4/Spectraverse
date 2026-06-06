@@ -25,3 +25,9 @@ soundfile>=0.12.0               # read/write WAV without scipy limitation
 # Cloud & caching
 azure-storage-blob>=12.22.0
 redis>=5.0.0
+
+# Sprint 3 — Foundry IQ + GPT-4o vision (optional, app works without these via mock fallback)
+# Install with: pip install --pre azure-search-documents
+azure-search-documents>=11.7.0b2  # Pre-release — needed for 2026-05-01-preview KnowledgeBase APIs
+azure-identity>=1.17.0             # DefaultAzureCredential for keyless auth
+openai>=1.55.0                     # Azure OpenAI client for GPT-4o vision calls

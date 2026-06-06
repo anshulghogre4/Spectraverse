@@ -106,6 +106,51 @@ export async function generateImageToAudio(
   return res.json();
 }
 
+// ── Sprint 3: Foundry IQ–powered generation ────────────────────────────────
+
+export type FoundryCitation = {
+  ref_id: string;
+  doc_key: string;
+  title: string;
+  content_snippet: string;
+};
+
+export type FoundryReasoningStep = {
+  stage: 'vision' | 'retrieval' | 'mapping';
+  description: string;
+  duration_ms?: number;
+  tokens_used?: number;
+  is_mock?: boolean;
+};
+
+export type FoundryGenerationResult = GenerationResult & {
+  image_description: string;
+  citations: FoundryCitation[];
+  reasoning_steps: FoundryReasoningStep[];
+  is_fully_live: boolean;
+  is_mock: boolean;
+};
+
+export async function generateImageToAudioFoundry(
+  file: File,
+  mode: string,
+  style: string,
+  duration = 15,
+): Promise<FoundryGenerationResult> {
+  const form = new FormData();
+  form.append('file', file);
+  const params = new URLSearchParams({ mode, style, duration: String(duration) });
+  const res = await fetch(`${API_URL}/api/generate/image-to-audio-foundry?${params}`, {
+    method: 'POST',
+    body: form,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(text);
+  }
+  return res.json();
+}
+
 export async function generateAudioToVisual(
   file: File,
   mode: string,
@@ -154,9 +199,9 @@ export async function detectSpectrogram(file: File): Promise<DetectionResult> {
 
 export async function invertSpectrogram(
   file: File,
-  options: { colormap?: string; dbMin?: number; dbMax?: number; nIter?: number } = {},
+  options: { colormap?: string; dbMin?: number; dbMax?: number; nIter?: number; preset?: string } = {},
 ): Promise<InversionResult> {
-  const { colormap = 'viridis', dbMin = -80, dbMax = 0, nIter = 64 } = options;
+  const { colormap = 'viridis', dbMin = -80, dbMax = 0, nIter = 64, preset = 'librosa_mel' } = options;
   const form = new FormData();
   form.append('file', file);
   const params = new URLSearchParams({
@@ -164,6 +209,7 @@ export async function invertSpectrogram(
     db_min: String(dbMin),
     db_max: String(dbMax),
     n_iter: String(nIter),
+    preset,
   });
   const res = await fetch(`${API_URL}/api/invert-spectrogram?${params}`, {
     method: 'POST',

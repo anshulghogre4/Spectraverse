@@ -5,6 +5,56 @@ Format: `[Date] · Sprint · Component · Change`
 
 ---
 
+## [2026-06-06] · Sprint 3 · Foundry IQ + Spectrogram Inversion + Distinct Visuals
+
+**Session type**: Feature build — Microsoft Foundry integration, Chrome Music Lab presets, 8 visual scene types  
+**Status**: 🚧 IN PROGRESS — backend + UI complete with mock fallback; Azure provisioning pending
+
+### Added
+
+- `backend/app/backend_foundry_agent.py` — 3-stage agentic pipeline (GPT-4o vision → Foundry IQ retrieval → GPT-4o-mini mapping) with graceful mock fallback at every stage
+- `backend/app/backend_spectrogram_detector.py` — 5-signal heuristic for spectrogram detection
+- `backend/app/backend_spectrogram_preprocessor.py` — entropy-based axis crop + LUT colormap inversion
+- `backend/app/backend_spectrogram_inverter.py` — Griffin-Lim inversion with 3 presets (`librosa_mel`, `chrome_music_lab`, `wikipedia_speech`) extracted from real source-code analysis
+- `backend/app/main.py` — new endpoint `/api/generate/image-to-audio-foundry` returning audio + citations + reasoning chain
+- `frontend/components/FoundryReasoningPanel.tsx` — colour-coded chain of thought + footnoted citations panel
+- `frontend/components/SpectrogramUploadZone.tsx` — preset picker, colormap selector, quality slider for spectrogram inversion
+- `frontend/lib/api.ts` — `generateImageToAudioFoundry()` + types (`FoundryGenerationResult`, `FoundryCitation`, `FoundryReasoningStep`)
+- `data/knowledge_base/01_music_theory_keys.md` — major/minor key emotional associations + image→key mapping rules
+- `data/knowledge_base/02_music_theory_intervals.md` — consonance/dissonance + style-specific intervals
+- `data/knowledge_base/03_synesthesia_research.md` — Scriabin/Messiaen/Rimsky-Korsakov mappings + cross-modal research
+- `data/knowledge_base/04_film_score_techniques.md` — practical sound design rules for all 7 creative styles
+- `docs/FOUNDRY_IQ_CONTEXT.md` — research notes on Foundry IQ architecture
+- `.env.example` — documents `AZURE_OPENAI_*`, `AZURE_SEARCH_*`, `FOUNDRY_KB_NAME`, `FOUNDRY_KS_NAME` env vars
+
+### Changed
+
+| File | What changed |
+|---|---|
+| `frontend/components/UploadZone.tsx` | Added Foundry IQ on/off toggle (image flow only); routes to `generateImageToAudioFoundry()` when ON; renders `FoundryReasoningPanel` above audio output when ON |
+| `frontend/components/VisualOutputPanel.tsx` | Complete rewrite — 8 distinct render modes (orbits, flow_field, lightning, horror, aurora, bass_pulse, mandala, glitch) keyed off the creative style. Replaces single "bouncing balls" implementation |
+| `frontend/app/page.tsx` | Added third section: "Spectrogram → Audio" with teal theme |
+| `backend/app/backend_dsp_synthesizer.py` | All synthesis params now actually used (BPM drives beat pulse, complexity drives harmonic count, all 5 instrument types have distinct timbres, distortion/delay/compression effects apply) |
+| `backend/app/backend_image_to_audio_pipeline.py` | Fixed `self.synth.__class__(...)` bug that discarded configured synthesiser — now reuses `self.synth` with updated duration |
+| `backend/app/backend_spectrogram_inverter.py` | Added 1024×256 hard input cap (fixes crash on 1920px screenshots); added `from_preset()` classmethod with three real-world presets; supports linear FFT path (skips mel filterbank) for Chrome Music Lab and speech sources |
+| `backend/requirements.txt` | Added `opencv-python-headless`, `soundfile`; added optional `azure-search-documents>=11.7.0b2`, `azure-identity`, `openai>=1.55.0` for live Foundry mode |
+
+### Fixed
+
+1. Audio sounded identical for every image — `DSPSynthesizer` ignored `bpm`, `complexity`, `effects`, and most `instruments`; now each image produces measurably different audio
+2. Pipeline created throwaway `DSPSynthesizer` instances — fixed by mutating `self.synth.duration` instead of re-instantiating
+3. 1920px image uploads crashed Griffin-Lim — input now capped at 1024×256 with bilinear downsampling
+4. Audio playback button did nothing on first click — `srcRef` was a ref, not state; switched to `useState(audioSrc)` so the audio element actually receives the src
+
+### Notes
+
+- Foundry agent runs with mock data when Azure env vars are missing — app is fully demoable without any Azure account
+- UI shows "🔮 Foundry live" badge when all Azure vars are set, "⚠ mock fallback" otherwise
+- Honest about limits: Griffin-Lim from a Wikipedia screenshot will not produce intelligible speech — phase information is unrecoverable from a 2D image. Documented in Sprint 3 plan
+- Knowledge base content is ready for direct upload to Foundry IQ portal (Build → Knowledge tab)
+
+---
+
 ## [2026-06-02] · Sprint 1 · Implementation & Hardening
 
 **Session type**: Full implementation, multi-agent audit, blocker remediation  
