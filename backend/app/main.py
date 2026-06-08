@@ -207,6 +207,12 @@ async def lifespan(app: FastAPI):
     print(f"   DSPSynthesizer  : {DSP_AVAILABLE}")
     print(f"   ImagePipeline   : {IMAGE_PIPELINE_AVAILABLE}")
     print(f"   AudioPipeline   : {AUDIO_PIPELINE_AVAILABLE}")
+    print(f"   FoundryAgent    : {FOUNDRY_AGENT_AVAILABLE}")
+    if FOUNDRY_AGENT_AVAILABLE and _foundry_agent:
+        caps = _foundry_agent.capabilities()
+        print(f"      provider chain: {caps.get('provider_chain', [])}")
+        print(f"      foundry IQ live: {caps.get('foundry_live')}")
+        print(f"      providers available: {caps.get('providers_available')}")
 
     yield
 

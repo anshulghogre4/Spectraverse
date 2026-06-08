@@ -339,6 +339,7 @@ export default function UploadZone({ type, mode, style }: Props) {
           description={foundryResult.image_description}
           citations={foundryResult.citations}
           reasoningSteps={foundryResult.reasoning_steps}
+          provider={foundryResult.provider}
           isFullyLive={foundryResult.is_fully_live}
           isMock={foundryResult.is_mock}
         />

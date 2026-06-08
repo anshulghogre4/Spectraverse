@@ -127,6 +127,13 @@ export type FoundryGenerationResult = GenerationResult & {
   image_description: string;
   citations: FoundryCitation[];
   reasoning_steps: FoundryReasoningStep[];
+  provider: 'azure' | 'openai' | 'gemini' | 'groq' | 'mock';
+  providers_available: {
+    azure: boolean;
+    openai: boolean;
+    gemini: boolean;
+    groq: boolean;
+  };
   is_fully_live: boolean;
   is_mock: boolean;
 };

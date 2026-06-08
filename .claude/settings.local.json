@@ -11,7 +11,9 @@
       "Bash(xargs ls -lh)",
       "Bash(python3 -c \"import jest\")",
       "Bash(node -e \"const j=require\\('jest'\\); console.log\\(Object.keys\\(j\\)\\)\")",
-      "Bash(node -e \"const c = require\\('/f/Preparation/Microsoft_Agents_League/frontend/node_modules/jest-config/build/Defaults.js'\\); console.log\\(Object.keys\\(c.default || c\\).filter\\(k => k.toLowerCase\\(\\).includes\\('setup'\\)\\)\\)\")"
+      "Bash(node -e \"const c = require\\('/f/Preparation/Microsoft_Agents_League/frontend/node_modules/jest-config/build/Defaults.js'\\); console.log\\(Object.keys\\(c.default || c\\).filter\\(k => k.toLowerCase\\(\\).includes\\('setup'\\)\\)\\)\")",
+      "Bash(/f/Preparation/Microsoft_Agents_League/.venv/Scripts/python.exe -c \"from app.backend_foundry_agent import FoundryAgent; a = FoundryAgent\\(\\); print\\('OK:', a.capabilities\\(\\)\\)\")",
+      "Bash(/f/Preparation/Microsoft_Agents_League/.venv/Scripts/python.exe -c ' *)"
     ]
   }
 }

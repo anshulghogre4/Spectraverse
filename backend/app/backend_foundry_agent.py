@@ -1,18 +1,23 @@
 """
-FoundryAgent — Azure Foundry IQ + GPT-4o vision integration for SpectraVerse.
+FoundryAgent — Azure Foundry IQ + multi-provider LLM integration for SpectraVerse.
 
 Three-stage pipeline:
-1. describe_image()    → GPT-4o vision returns rich semantic description
+1. describe_image()    → vision model returns rich semantic description
 2. query_knowledge()   → Foundry IQ knowledge base returns grounded music theory + citations
-3. extract_params()    → GPT-4o-mini maps grounded data to DSP parameters
+3. extract_params()    → mapping model produces DSP parameters with citations
 
-Each stage degrades gracefully:
-- Missing AZURE_OPENAI_* env vars        → describe/extract use rule-based mock
-- Missing AZURE_SEARCH_*    env vars     → query returns canned music theory
-- All env vars set                       → live Foundry IQ + GPT-4o pipeline
+Provider chain (vision + mapping stages) — first available wins:
+1. Azure OpenAI       — AZURE_OPENAI_ENDPOINT + AZURE_OPENAI_API_KEY        (Microsoft Foundry, headline integration)
+2. OpenAI direct      — OPENAI_API_KEY                                       (gpt-4o family)
+3. Google Gemini      — GEMINI_API_KEY                                       (1500 req/day free, vision-capable)
+4. Groq               — GROQ_API_KEY                                         (Llama 4 Maverick — fast, OpenAI-compatible)
+5. Mock               — none of the above                                    (canned responses for offline demo)
+
+Foundry IQ knowledge base is independent — works with any LLM provider above.
 
 This means the /api/generate/image-to-audio-foundry endpoint always returns
-a valid response shape, even with zero Azure setup.
+a valid response shape. Provider used is reported in the response so the
+UI can show which AI actually answered.
 """
 
 from __future__ import annotations
@@ -20,18 +25,22 @@ import os
 import json
 import base64
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 
 logger = logging.getLogger(__name__)
 
-# ── Optional Azure SDK imports (fall back to mock when missing) ──────────────
+# ── Optional SDK imports (fall back to mock when missing) ────────────────────
 try:
-    from openai import AzureOpenAI
-    AZURE_OPENAI_SDK = True
+    from openai import AzureOpenAI, OpenAI
+    OPENAI_SDK = True
 except ImportError:
-    AZURE_OPENAI_SDK = False
+    OPENAI_SDK = False
     AzureOpenAI = None  # type: ignore
+    OpenAI = None  # type: ignore
+
+# Google Gemini and Groq are accessed via OpenAI-compatible endpoints,
+# so no extra SDK needed — we just point the OpenAI client at their base URLs.
 
 try:
     from azure.core.credentials import AzureKeyCredential
@@ -42,9 +51,25 @@ try:
         KnowledgeBaseRetrievalRequest,
         SearchIndexKnowledgeSourceParams,
     )
+    # Intent-based retrieval (required when reasoning_effort=minimal)
+    try:
+        from azure.search.documents.knowledgebases.models import KnowledgeRetrievalSemanticIntent
+    except ImportError:
+        KnowledgeRetrievalSemanticIntent = None  # type: ignore
+    # Azure Blob Storage knowledge source uses a different params class.
+    # Some SDK versions name it differently — try both common shapes.
+    try:
+        from azure.search.documents.knowledgebases.models import AzureBlobKnowledgeSourceParams
+    except ImportError:
+        try:
+            from azure.search.documents.knowledgebases.models import BlobKnowledgeSourceParams as AzureBlobKnowledgeSourceParams
+        except ImportError:
+            AzureBlobKnowledgeSourceParams = None  # type: ignore
     AZURE_SEARCH_SDK = True
 except ImportError:
     AZURE_SEARCH_SDK = False
+    AzureBlobKnowledgeSourceParams = None  # type: ignore
+    KnowledgeRetrievalSemanticIntent = None  # type: ignore
 
 
 @dataclass
@@ -201,39 +226,83 @@ class FoundryAgent:
     """Orchestrates GPT-4o vision + Foundry IQ + GPT-4o-mini for image→audio."""
 
     def __init__(self) -> None:
-        # Azure OpenAI config (vision + mapping)
+        # ── Azure OpenAI (priority 1) ───────────────────────────────────
         self.aoai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "")
         self.aoai_key = os.getenv("AZURE_OPENAI_API_KEY", "")
         self.gpt4o_deployment = os.getenv("AZURE_OPENAI_GPT4O_DEPLOYMENT", "gpt-4o")
         self.gpt4o_mini_deployment = os.getenv("AZURE_OPENAI_GPT4O_MINI_DEPLOYMENT", "gpt-4o-mini")
         self.aoai_api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21")
 
-        # Azure AI Search / Foundry IQ config
+        # ── OpenAI direct (priority 2) ──────────────────────────────────
+        self.openai_key = os.getenv("OPENAI_API_KEY", "")
+        # Per user instruction: use gpt-4o for both stages — mini quality is insufficient
+        self.openai_vision_model = os.getenv("OPENAI_VISION_MODEL", "gpt-4o")
+        self.openai_mapping_model = os.getenv("OPENAI_MAPPING_MODEL", "gpt-4o")
+
+        # ── Google Gemini (priority 3, free tier) ───────────────────────
+        # Get a key at https://aistudio.google.com/apikey — 1500 req/day free
+        self.gemini_key = os.getenv("GEMINI_API_KEY", "")
+        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+        # ── Groq (priority 4, free tier) ────────────────────────────────
+        # Get a key at https://console.groq.com/keys — 500 RPD on Llama 4 Maverick
+        self.groq_key = os.getenv("GROQ_API_KEY", "")
+        self.groq_model = os.getenv("GROQ_MODEL", "meta-llama/llama-4-maverick-17b-128e-instruct")
+
+        # ── Foundry IQ knowledge base (independent of LLM provider) ─────
         self.search_endpoint = os.getenv("AZURE_SEARCH_ENDPOINT", "")
         self.search_key = os.getenv("AZURE_SEARCH_API_KEY", "")
         self.kb_name = os.getenv("FOUNDRY_KB_NAME", "spectraverse-music-theory-kb")
         self.ks_name = os.getenv("FOUNDRY_KS_NAME", "music-theory-ks")
 
-        # Feature flags
-        self.vision_live = bool(self.aoai_endpoint and self.aoai_key and AZURE_OPENAI_SDK)
+        # ── Resolve active providers (in priority order) ────────────────
+        self.azure_live = bool(self.aoai_endpoint and self.aoai_key and OPENAI_SDK)
+        self.openai_live = bool(self.openai_key and OPENAI_SDK)
+        self.gemini_live = bool(self.gemini_key and OPENAI_SDK)
+        self.groq_live = bool(self.groq_key and OPENAI_SDK)
+
+        # Provider chain — tried in this order, first success wins per call
+        self._provider_chain: List[str] = []
+        if self.azure_live:
+            self._provider_chain.append("azure")
+        if self.openai_live:
+            self._provider_chain.append("openai")
+        if self.gemini_live:
+            self._provider_chain.append("gemini")
+        if self.groq_live:
+            self._provider_chain.append("groq")
+
+        # Primary provider — what gets reported when no failover is needed
+        self.provider = self._provider_chain[0] if self._provider_chain else "mock"
+
+        self.vision_live = self.provider != "mock"
+        self.mapping_live = self.vision_live
+
         self.foundry_live = bool(
             self.search_endpoint and self.search_key and AZURE_SEARCH_SDK
         )
-        self.mapping_live = self.vision_live  # Same SDK, same endpoint
 
-        # Lazy-initialised clients
-        self._aoai_client: Optional[Any] = None
+        # Lazy-initialised clients (one per provider)
+        self._llm_clients: Dict[str, Any] = {}
         self._kb_client: Optional[Any] = None
 
         logger.info(
-            "FoundryAgent initialised — vision=%s, foundry=%s, mapping=%s",
-            self.vision_live, self.foundry_live, self.mapping_live,
+            "FoundryAgent initialised — chain=%s, foundry=%s",
+            self._provider_chain, self.foundry_live,
         )
 
     # ── Capability summary (for /health and frontend toggle) ─────────────
 
-    def capabilities(self) -> Dict[str, bool]:
+    def capabilities(self) -> Dict[str, Any]:
         return {
+            "provider": self.provider,            # "azure" | "openai" | "gemini" | "groq" | "mock"
+            "provider_chain": list(self._provider_chain),
+            "providers_available": {
+                "azure": self.azure_live,
+                "openai": self.openai_live,
+                "gemini": self.gemini_live,
+                "groq": self.groq_live,
+            },
             "vision_live": self.vision_live,
             "foundry_live": self.foundry_live,
             "mapping_live": self.mapping_live,
@@ -243,7 +312,7 @@ class FoundryAgent:
     # ── Stage 1: Vision description ──────────────────────────────────────
 
     def describe_image(self, image_bytes: bytes, style: str = "") -> tuple[str, ReasoningStep]:
-        """Returns (rich_description, reasoning_step)."""
+        """Returns (rich_description, reasoning_step). Cascades through provider chain on failure."""
         if not self.vision_live:
             desc = _MOCK_IMAGE_DESCRIPTIONS["default"]
             if style:
@@ -254,58 +323,68 @@ class FoundryAgent:
                 is_mock=True,
             )
 
-        try:
-            client = self._get_aoai_client()
-            b64 = base64.b64encode(image_bytes).decode()
-
-            style_hint = (
-                f" The user has chosen a '{style}' creative style." if style else ""
-            )
-            response = client.chat.completions.create(
-                model=self.gpt4o_deployment,
-                messages=[
+        b64 = base64.b64encode(image_bytes).decode()
+        style_hint = (
+            f" The user has chosen a '{style}' creative style." if style else ""
+        )
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are an expert visual analyst describing images to a music composer. "
+                    "Describe the image in 2-3 sentences focusing on: dominant colours, "
+                    "emotional mood, energy level, scene type, and any narrative implied. "
+                    "Be specific and evocative." + style_hint
+                ),
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Describe this image for music composition."},
                     {
-                        "role": "system",
-                        "content": (
-                            "You are an expert visual analyst describing images to a music composer. "
-                            "Describe the image in 2-3 sentences focusing on: dominant colours, "
-                            "emotional mood, energy level, scene type, and any narrative implied. "
-                            "Be specific and evocative."
-                            + style_hint
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": "Describe this image for music composition."},
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
-                            },
-                        ],
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
                     },
                 ],
-                max_tokens=200,
-                temperature=0.7,
-            )
-            description = response.choices[0].message.content or ""
-            tokens = (
-                response.usage.total_tokens if response.usage else 0
-            )
+            },
+        ]
 
-            return description, ReasoningStep(
-                stage="vision",
-                description=description,
-                tokens_used=tokens,
-                is_mock=False,
-            )
-        except Exception as e:
-            logger.exception("GPT-4o vision call failed — falling back to mock")
-            return _MOCK_IMAGE_DESCRIPTIONS["default"], ReasoningStep(
-                stage="vision",
-                description=f"Vision error ({e}); using mock",
-                is_mock=True,
-            )
+        attempts: List[str] = []
+        for provider in self._provider_chain:
+            try:
+                client = self._get_llm_client(provider)
+                response = client.chat.completions.create(
+                    model=self._vision_model_id(provider),
+                    messages=messages,
+                    max_tokens=200,
+                    temperature=0.7,
+                )
+                description = response.choices[0].message.content or ""
+                tokens = response.usage.total_tokens if response.usage else 0
+                attempts.append(provider)
+
+                attempt_note = (
+                    f" (after {', '.join(a + ' failed' for a in attempts[:-1])})"
+                    if len(attempts) > 1 else ""
+                )
+                return description, ReasoningStep(
+                    stage="vision",
+                    description=f"[{provider}/{self._vision_model_id(provider)}{attempt_note}] {description}",
+                    tokens_used=tokens,
+                    is_mock=False,
+                )
+            except Exception as e:
+                logger.warning("Vision: %s failed (%s) — trying next", provider, e)
+                attempts.append(provider)
+                continue
+
+        # All providers exhausted — fall back to mock
+        logger.error("All providers in chain failed for vision: %s", attempts)
+        return _MOCK_IMAGE_DESCRIPTIONS["default"], ReasoningStep(
+            stage="vision",
+            description=f"All providers failed ({', '.join(attempts)}); using mock",
+            is_mock=True,
+        )
 
     # ── Stage 2: Foundry IQ knowledge retrieval ──────────────────────────
 
@@ -341,33 +420,21 @@ class FoundryAgent:
                 f"Style preference: {style or 'classic'}. Cite music theory and synesthesia research."
             )
 
-            request = KnowledgeBaseRetrievalRequest(
-                messages=[
-                    KnowledgeBaseMessage(
-                        role="assistant",
-                        content=[
-                            KnowledgeBaseMessageTextContent(
-                                text=(
-                                    "You are a music theory expert. Answer with specific "
-                                    "musical recommendations grounded in cited sources. "
-                                    "Each citation has a ref_id."
-                                )
-                            )
-                        ],
-                    ),
-                    KnowledgeBaseMessage(
-                        role="user",
-                        content=[KnowledgeBaseMessageTextContent(text=user_query)],
-                    ),
-                ],
-                knowledge_source_params=[
-                    SearchIndexKnowledgeSourceParams(
-                        knowledge_source_name=self.ks_name,
-                        include_references=True,
-                        include_reference_source_data=True,
-                    )
-                ],
-            )
+            # Foundry IQ retrieval API supports two input shapes:
+            #   - messages: requires reasoning_effort >= 'low' (needs LLM-backed planning)
+            #   - intents:  works with reasoning_effort=minimal (pure semantic retrieval)
+            # Our KB is configured with Minimal effort, so we use intents.
+            if KnowledgeRetrievalSemanticIntent is not None:
+                request = KnowledgeBaseRetrievalRequest(
+                    intents=[KnowledgeRetrievalSemanticIntent(search=user_query)],
+                    knowledge_source_params=[self._build_ks_params()],
+                )
+            else:
+                # Older SDK fallback — raw dict shape that the REST API accepts
+                request = KnowledgeBaseRetrievalRequest(
+                    intents=[{"type": "semantic", "search": user_query}],
+                    knowledge_source_params=[self._build_ks_params()],
+                )
 
             result = kb_client.retrieve(request)
             citations = self._parse_citations(result)
@@ -425,71 +492,136 @@ class FoundryAgent:
                 is_mock=True,
             )
 
-        try:
-            client = self._get_aoai_client()
-            citations_text = "\n\n".join(
-                f"[{c.ref_id}] {c.title}: {c.content_snippet}" for c in citations[:5]
-            )
-            response = client.chat.completions.create(
-                model=self.gpt4o_mini_deployment,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a music theory mapper. Given an image description and "
-                            "cited music theory sources, return a JSON object with these exact keys: "
-                            '{"key_name": str, "bpm": int (40-180), "instruments": [str array], '
-                            '"complexity": float (0-1), "reverb": float (0-1), "intensity": float (0-1), '
-                            '"effects": [str array, can be empty], "rationale": str (one sentence with citation refs like [0])}'
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            f"IMAGE DESCRIPTION:\n{description}\n\n"
-                            f"CITED SOURCES:\n{citations_text}\n\n"
-                            f"STYLE PREFERENCE: {style or 'classic'}\n\n"
-                            "Return JSON only."
-                        ),
-                    },
-                ],
-                max_tokens=400,
-                temperature=0.3,
-                response_format={"type": "json_object"},
-            )
-            params_raw = response.choices[0].message.content or "{}"
-            params = json.loads(params_raw)
-            params = self._validate_params(params)
-            tokens = response.usage.total_tokens if response.usage else 0
-
-            return params, ReasoningStep(
-                stage="mapping",
-                description=(
-                    f"GPT-4o-mini → {params.get('key_name')} at {params['bpm']} BPM. "
-                    f"Rationale: {params.get('rationale', '')[:120]}"
+        citations_text = "\n\n".join(
+            f"[{c.ref_id}] {c.title}: {c.content_snippet}" for c in citations[:5]
+        )
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a music theory mapper. Given an image description and "
+                    "cited music theory sources, return ONLY a valid JSON object with these exact keys: "
+                    '{"key_name": str, "bpm": int (40-180), "instruments": [str array], '
+                    '"complexity": float (0-1), "reverb": float (0-1), "intensity": float (0-1), '
+                    '"effects": [str array, can be empty], "rationale": str (one sentence with citation refs like [0])}. '
+                    "Do not wrap the JSON in markdown code fences. Output the JSON object only."
                 ),
-                tokens_used=tokens,
-                is_mock=False,
-            )
-        except Exception as e:
-            logger.exception("Mapping LLM call failed — falling back to heuristic")
-            params = _heuristic_key_from_features(image_features or {})
-            return params, ReasoningStep(
-                stage="mapping",
-                description=f"Mapping error ({e}); used heuristic → {params.get('key_name')}",
-                is_mock=True,
-            )
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"IMAGE DESCRIPTION:\n{description}\n\n"
+                    f"CITED SOURCES:\n{citations_text}\n\n"
+                    f"STYLE PREFERENCE: {style or 'classic'}\n\n"
+                    "Return JSON only."
+                ),
+            },
+        ]
+
+        attempts: List[str] = []
+        for provider in self._provider_chain:
+            try:
+                client = self._get_llm_client(provider)
+                kwargs: Dict[str, Any] = dict(
+                    model=self._mapping_model_id(provider),
+                    messages=messages,
+                    max_tokens=400,
+                    temperature=0.3,
+                )
+                # response_format only on Azure/OpenAI; Gemini/Groq parse loosely
+                if provider in ("azure", "openai"):
+                    kwargs["response_format"] = {"type": "json_object"}
+
+                response = client.chat.completions.create(**kwargs)
+                params_raw = response.choices[0].message.content or "{}"
+                params = self._parse_json_loose(params_raw)
+                params = self._validate_params(params)
+                tokens = response.usage.total_tokens if response.usage else 0
+                attempts.append(provider)
+
+                attempt_note = (
+                    f" (after {', '.join(a + ' failed' for a in attempts[:-1])})"
+                    if len(attempts) > 1 else ""
+                )
+                return params, ReasoningStep(
+                    stage="mapping",
+                    description=(
+                        f"[{provider}/{self._mapping_model_id(provider)}{attempt_note}] "
+                        f"→ {params.get('key_name')} at {params['bpm']} BPM. "
+                        f"Rationale: {params.get('rationale', '')[:120]}"
+                    ),
+                    tokens_used=tokens,
+                    is_mock=False,
+                )
+            except Exception as e:
+                logger.warning("Mapping: %s failed (%s) — trying next", provider, e)
+                attempts.append(provider)
+                continue
+
+        # All providers exhausted — heuristic fallback
+        logger.error("All providers in chain failed for mapping: %s", attempts)
+        params = _heuristic_key_from_features(image_features or {})
+        return params, ReasoningStep(
+            stage="mapping",
+            description=f"All providers failed ({', '.join(attempts)}); used heuristic → {params.get('key_name')}",
+            is_mock=True,
+        )
 
     # ── Internal helpers ─────────────────────────────────────────────────
 
-    def _get_aoai_client(self) -> Any:
-        if self._aoai_client is None:
-            self._aoai_client = AzureOpenAI(
+    def _get_llm_client(self, provider: str) -> Any:
+        """Return an OpenAI-compatible client for the given provider (cached)."""
+        if provider in self._llm_clients:
+            return self._llm_clients[provider]
+
+        if provider == "azure":
+            client = AzureOpenAI(
                 azure_endpoint=self.aoai_endpoint,
                 api_key=self.aoai_key,
                 api_version=self.aoai_api_version,
             )
-        return self._aoai_client
+        elif provider == "openai":
+            client = OpenAI(api_key=self.openai_key)
+        elif provider == "gemini":
+            # Google Gemini exposes an OpenAI-compatible endpoint
+            client = OpenAI(
+                api_key=self.gemini_key,
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            )
+        elif provider == "groq":
+            client = OpenAI(
+                api_key=self.groq_key,
+                base_url="https://api.groq.com/openai/v1",
+            )
+        else:
+            raise RuntimeError(f"Unknown provider: {provider}")
+
+        self._llm_clients[provider] = client
+        return client
+
+    def _vision_model_id(self, provider: str) -> str:
+        """Model id for vision call — varies by provider."""
+        if provider == "azure":
+            return self.gpt4o_deployment
+        if provider == "openai":
+            return self.openai_vision_model
+        if provider == "gemini":
+            return self.gemini_model
+        if provider == "groq":
+            return self.groq_model
+        return ""
+
+    def _mapping_model_id(self, provider: str) -> str:
+        """Model id for mapping call — varies by provider."""
+        if provider == "azure":
+            return self.gpt4o_deployment  # gpt-4o for both stages per user request
+        if provider == "openai":
+            return self.openai_mapping_model
+        if provider == "gemini":
+            return self.gemini_model
+        if provider == "groq":
+            return self.groq_model
+        return ""
 
     def _get_kb_client(self) -> Any:
         if self._kb_client is None:
@@ -499,6 +631,29 @@ class FoundryAgent:
                 credential=AzureKeyCredential(self.search_key),
             )
         return self._kb_client
+
+    def _build_ks_params(self) -> Any:
+        """
+        Build knowledge_source_params matching the kind registered in Foundry.
+        Our portal-created source is kind=azureBlob, so we must send blob params,
+        not the searchIndex variant. Falls through provider class names that
+        differ between Azure Search SDK versions.
+        """
+        # Preferred: explicit Azure Blob class
+        if AzureBlobKnowledgeSourceParams is not None:
+            return AzureBlobKnowledgeSourceParams(
+                knowledge_source_name=self.ks_name,
+                include_references=True,
+                include_reference_source_data=True,
+            )
+        # Last-resort: build a raw dict that the REST API accepts.
+        # 'kind' must match the registered source's kind exactly.
+        return {
+            "kind": "azureBlob",
+            "knowledgeSourceName": self.ks_name,
+            "includeReferences": True,
+            "includeReferenceSourceData": True,
+        }
 
     def _parse_citations(self, result: Any) -> List[Citation]:
         """Parse the KB retrieve response into Citation objects."""
@@ -513,16 +668,27 @@ class FoundryAgent:
             for chunk in chunks[:5]:
                 ref_id = str(chunk.get("ref_id", ""))
                 ref = ref_lookup.get(ref_id)
+
+                # Reference attribute names differ between source kinds.
+                # Blob refs have `blob_url`, `source_data`, etc. Index refs use `doc_key`.
+                # Try them in order — first non-empty wins.
                 doc_key = (
-                    getattr(ref, "doc_key", None) if ref else chunk.get("title", "")
+                    chunk.get("title")
+                    or (getattr(ref, "doc_key", None) if ref else None)
+                    or (getattr(ref, "blob_url", None) if ref else None)
+                    or (getattr(ref, "source_data", None) if ref else None)
+                    or (getattr(ref, "id", None) if ref else None)
+                    or "unknown source"
                 )
                 citations.append(
                     Citation(
                         ref_id=ref_id,
-                        doc_key=str(doc_key or chunk.get("title", "")),
+                        doc_key=str(doc_key)[:200],
                         title=str(chunk.get("title", "")),
                         content_snippet=str(chunk.get("content", ""))[:500],
-                        activity_source=int(getattr(ref, "activity_source", 0) or 0),
+                        activity_source=int(
+                            getattr(ref, "activity_source", 0) or 0
+                        ) if ref else 0,
                     )
                 )
         except Exception as e:
@@ -555,6 +721,38 @@ class FoundryAgent:
         out["key"] = out["key_name"]  # alias for downstream code
         return out
 
+    def _parse_json_loose(self, text: str) -> Dict[str, Any]:
+        """
+        Parse JSON tolerantly. Some providers (Gemini, Groq) wrap JSON
+        in markdown code fences or add chatter. Try strict, then fall back
+        to extracting the first {...} block.
+        """
+        text = text.strip()
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+        # Strip markdown fences
+        if text.startswith("```"):
+            text = text.split("```", 2)[1] if "```" in text[3:] else text[3:]
+            if text.startswith("json"):
+                text = text[4:]
+            text = text.rsplit("```", 1)[0].strip()
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                pass
+        # Last resort: regex-extract the outermost JSON object
+        import re
+        match = re.search(r"\{[\s\S]*\}", text)
+        if match:
+            try:
+                return json.loads(match.group(0))
+            except json.JSONDecodeError:
+                pass
+        logger.warning("Could not parse JSON from LLM response: %r", text[:120])
+        return {}
+
 
 # ── Convenience wrapper ──────────────────────────────────────────────────────
 
@@ -571,11 +769,14 @@ def build_foundry_pipeline_response(
         description, citations, style, image_features
     )
 
+    caps = agent.capabilities()
     return {
         "image_description": description,
         "audio_params": params,
         "citations": [asdict(c) for c in citations],
         "reasoning_steps": [asdict(s) for s in (vision_step, retrieval_step, mapping_step)],
-        "is_fully_live": agent.capabilities()["is_fully_live"],
+        "provider": caps["provider"],
+        "providers_available": caps["providers_available"],
+        "is_fully_live": caps["is_fully_live"],
         "is_mock": vision_step.is_mock or retrieval_step.is_mock,
     }

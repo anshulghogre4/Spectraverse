@@ -7,14 +7,24 @@ type Props = {
   description: string;
   citations: FoundryCitation[];
   reasoningSteps: FoundryReasoningStep[];
+  provider?: 'azure' | 'openai' | 'gemini' | 'groq' | 'mock';
   isFullyLive: boolean;
   isMock: boolean;
+};
+
+const PROVIDER_BADGE: Record<string, { label: string; className: string }> = {
+  azure:  { label: '🔮 Azure Foundry',  className: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
+  openai: { label: '🤖 OpenAI gpt-4o',  className: 'bg-blue-500/20 text-blue-300 border-blue-500/30' },
+  gemini: { label: '✨ Google Gemini',   className: 'bg-violet-500/20 text-violet-300 border-violet-500/30' },
+  groq:   { label: '⚡ Groq Llama',      className: 'bg-orange-500/20 text-orange-300 border-orange-500/30' },
+  mock:   { label: '⚠ mock fallback',   className: 'bg-amber-500/15 text-amber-300 border-amber-500/30' },
 };
 
 export default function FoundryReasoningPanel({
   description,
   citations,
   reasoningSteps,
+  provider = 'mock',
   isFullyLive,
   isMock,
 }: Props) {
@@ -32,18 +42,23 @@ export default function FoundryReasoningPanel({
     >
       {/* Header */}
       <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-slate-800">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-lg">🧠</span>
           <span className="text-sm font-semibold text-slate-200 uppercase tracking-widest">
             Agent reasoning
           </span>
+          {/* Provider badge — shows which AI actually answered */}
+          <span className={`text-xs px-2 py-0.5 rounded-full border ${PROVIDER_BADGE[provider].className}`}>
+            {PROVIDER_BADGE[provider].label}
+          </span>
+          {/* Foundry IQ status — independent of provider */}
           {isFullyLive ? (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-              🔮 Foundry live
+            <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+              + Foundry IQ live
             </span>
-          ) : isMock ? (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
-              ⚠ mock fallback
+          ) : !isMock ? (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-700/50 text-slate-400 border border-slate-600">
+              Foundry IQ mock
             </span>
           ) : null}
         </div>
