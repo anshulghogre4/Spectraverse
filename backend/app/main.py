@@ -906,13 +906,27 @@ async def invert_spectrogram(
             import librosa
             from app.backend_spectrogram_inverter import SpectrogramInverter
 
-            # Decode raw float32 numpy array from base64
-            raw_bytes = base64.b64decode(raw_b64_content)
+            # Decode raw float32 numpy array from base64.
+            # The frontend sends the base64 string as a text blob, so strip
+            # any whitespace / padding before decoding.
+            raw_text = raw_b64_content.decode("utf-8", errors="ignore").strip()
+            raw_bytes = base64.b64decode(raw_text)
+
+            # Safety: reject payloads that would produce arrays > 50 MB
+            MAX_RAW_BYTES = 50 * 1024 * 1024
+            if len(raw_bytes) > MAX_RAW_BYTES:
+                raise ValueError(
+                    f"Raw spectrogram data too large ({len(raw_bytes) / 1024 / 1024:.1f} MB). "
+                    f"Max supported: {MAX_RAW_BYTES / 1024 / 1024:.0f} MB."
+                )
+
             S_db = np.frombuffer(raw_bytes, dtype=np.float32).copy()
 
-            # Use params from the request (sent by frontend from raw_params)
             inferred_n_mels = raw_n_mels
             total_elements = len(S_db)
+
+            if total_elements == 0:
+                raise ValueError("Raw spectrogram data is empty")
 
             # Verify shape is compatible
             if total_elements % inferred_n_mels != 0:
@@ -920,7 +934,17 @@ async def invert_spectrogram(
                     if total_elements % candidate == 0:
                         inferred_n_mels = candidate
                         break
+                else:
+                    # Trim trailing bytes so it divides evenly
+                    total_elements = (total_elements // inferred_n_mels) * inferred_n_mels
+                    S_db = S_db[:total_elements]
+
             frames = total_elements // inferred_n_mels
+            if frames > 20000:
+                raise ValueError(
+                    f"Spectrogram has {frames} frames — too large for inversion. "
+                    f"Try a shorter audio clip (max ~3 minutes)."
+                )
             S_db = S_db.reshape(inferred_n_mels, frames)
 
             S_power = librosa.db_to_power(S_db)

@@ -482,12 +482,26 @@ function GenerateTab() {
             </button>
           </div>
 
-          <div className="px-5 pb-4">
+          <div className="px-5 pb-4 space-y-2">
             <img
               src={`data:image/png;base64,${result.spectrogram_b64}`}
               alt="Generated spectrogram"
               className="w-full rounded-xl border border-teal-500/20"
             />
+            <button
+              onClick={() => {
+                const a = document.createElement('a');
+                a.href = `data:image/png;base64,${result.spectrogram_b64}`;
+                a.download = `spectrogram-${Date.now()}.png`;
+                a.click();
+              }}
+              className="flex items-center gap-1.5 text-xs text-teal-400 hover:text-teal-300 transition"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" />
+              </svg>
+              Download PNG
+            </button>
           </div>
 
           <div className="px-5 pb-4 grid grid-cols-4 gap-2 text-center">

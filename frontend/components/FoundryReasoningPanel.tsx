@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { API_URL, type FoundryCitation, type FoundryReasoningStep } from '../lib/api';
+import type { FoundryCitation, FoundryReasoningStep } from '../lib/api';
 
 type Props = {
   description: string;
@@ -136,18 +136,7 @@ export default function FoundryReasoningPanel({
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-slate-200 truncate">
-                      {c.source_url ? (
-                        <a
-                          href={c.source_url.startsWith('/') ? `${API_URL}${c.source_url}` : c.source_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="hover:underline hover:text-emerald-300 transition"
-                        >
-                          {c.doc_key} <span className="text-slate-500">↗</span>
-                        </a>
-                      ) : (
-                        c.doc_key
-                      )}
+                      {c.doc_key}
                     </p>
                     {c.title && (
                       <p className="text-xs text-slate-500 truncate">{c.title}</p>
