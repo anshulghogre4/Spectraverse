@@ -99,7 +99,9 @@ No pre-recorded samples. Every note is synthesized in real-time:
 
 - Python 3.11+
 - Node.js 18+
-- At least one LLM API key (see below)
+- At least one **multimodal (vision-capable) LLM API key** (see below)
+
+> **Important:** All three LLM stages (image description, spectrogram analysis, audio-to-visual mapping) send images to the model. You **must** use a vision-capable model — text-only models will fail silently and fall back to heuristics. Every provider in the default chain is vision-capable: GPT-4o, Gemini 2.5 Flash, and Llama 4 Scout all support image inputs.
 
 ### 1. Clone & configure
 
@@ -120,7 +122,7 @@ Open `backend/.env` and fill in your keys. The file is pre-documented — here's
 |----------------|---------------|-----------|
 | `OPENAI_API_KEY` | LLM provider #2 — GPT-4o for vision + mapping | Need at least one LLM |
 | `GEMINI_API_KEY` | LLM provider #3 — Gemini 2.5 Flash (free tier) | Need at least one LLM |
-| `GROQ_API_KEY` | LLM provider #4 — Llama 4 Maverick (free, fastest) | Need at least one LLM |
+| `GROQ_API_KEY` | LLM provider #4 — Llama 4 Scout (free, vision-capable, fast) | Need at least one LLM |
 | `AZURE_OPENAI_ENDPOINT` | LLM provider #1 — Azure OpenAI (Foundry native) | Optional |
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI authentication | With endpoint |
 | `AZURE_SEARCH_ENDPOINT` | Foundry IQ knowledge base — Azure AI Search | For citations |
@@ -314,11 +316,13 @@ The agent uses a **provider chain** — first available wins:
 
 | Priority | Provider | Model | Why |
 |----------|----------|-------|-----|
-| 1 | Azure OpenAI | GPT-4o | Native Foundry integration |
-| 2 | OpenAI Direct | GPT-4o | Reliable fallback |
-| 3 | Google Gemini | Gemini 2.0 Flash | Free tier, vision-capable |
-| 4 | Groq | Llama 4 Maverick | Ultra-fast inference |
-| 5 | Heuristic | — | Deterministic fallback, always works |
+| 1 | Azure OpenAI | GPT-4o | Native Foundry integration — vision-capable |
+| 2 | OpenAI Direct | GPT-4o | Reliable fallback — vision-capable |
+| 3 | Google Gemini | Gemini 2.5 Flash | Free tier (1500 req/day) — vision-capable |
+| 4 | Groq | Llama 4 Scout | Free tier (500 RPD) — vision-capable, fast inference |
+| 5 | Heuristic | — | Deterministic fallback, always works, no image understanding |
+
+> **All LLM providers in the chain must be vision-capable.** If you swap in a custom model (via `GEMINI_MODEL`, `GROQ_MODEL`, etc.), ensure it supports image inputs — text-only models will fail the vision stage and the app will silently fall through to the heuristic.
 
 If Azure OpenAI has zero TPM quota, the agent seamlessly falls to OpenAI direct. If that key is missing, Gemini picks up. If all LLMs fail, a hash-based heuristic produces varied parameters from image features alone. **The app never fails.**
 

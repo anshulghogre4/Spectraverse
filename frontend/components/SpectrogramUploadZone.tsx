@@ -1,8 +1,8 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { detectSpectrogram, invertSpectrogram, audioToSpectrogram, type InversionResult, type SpectrogramResult } from '../lib/api';
+import { detectSpectrogram, invertSpectrogram, audioToSpectrogram, healthCheck, type InversionResult, type SpectrogramResult } from '../lib/api';
 import FoundryReasoningPanel from './FoundryReasoningPanel';
 import { useFileUpload } from '../hooks/useFileUpload';
 import { useAudioAnalyser } from '../hooks/useAudioAnalyser';
@@ -75,9 +75,25 @@ function InvertTab() {
   const [preset, setPreset] = useState('librosa_mel');
   const [nIter, setNIter] = useState(64);
   const [useAI, setUseAI] = useState(true);
+  const [aiProvider, setAiProvider] = useState<string>('');
   const [result, setResult] = useState<InversionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [genDone, setGenDone] = useState(false);
+
+  useEffect(() => {
+    healthCheck().then(h => {
+      const p = (h as any)?.foundry?.provider as string | undefined;
+      if (p && p !== 'mock') setAiProvider(p);
+    }).catch(() => {});
+  }, []);
+
+  const PROVIDER_LABEL: Record<string, string> = {
+    azure: 'Azure GPT-4o',
+    openai: 'GPT-4o',
+    gemini: 'Gemini',
+    groq: 'Groq Llama',
+  };
+  const providerLabel = PROVIDER_LABEL[aiProvider] ?? 'AI';
 
   const clear = () => {
     upload.clear();
@@ -268,7 +284,7 @@ function InvertTab() {
                   {useAI ? 'AI Vision · ON' : 'Heuristic · ON'}
                 </span>
                 <span className="opacity-70 hidden sm:inline">
-                  {useAI ? 'GPT-4o infers colormap, scale, dB range' : 'Uses detector heuristics only'}
+                  {useAI ? `${providerLabel} infers colormap, scale, dB range` : 'Uses detector heuristics only'}
                 </span>
               </span>
               <span className={`w-8 h-4 rounded-full relative transition-colors ${useAI ? 'bg-emerald-500' : 'bg-gray-600'}`}>
