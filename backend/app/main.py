@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 import asyncio
 import io
 import base64
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from pathlib import Path
@@ -130,13 +130,14 @@ except Exception as e:
 try:
     from app.backend_spectrogram_detector import SpectrogramDetector
     from app.backend_spectrogram_preprocessor import SpectrogramPreprocessor
-    from app.backend_spectrogram_inverter import SpectrogramInverter
+    from app.backend_spectrogram_inverter import SpectrogramInverter, VOCOS_AVAILABLE
     _spec_detector = SpectrogramDetector()
     _spec_inverter = SpectrogramInverter()
     SPECTROGRAM_INVERSION_AVAILABLE = True
 except Exception as e:
     print(f"⚠️  Spectrogram inversion unavailable: {e}")
     SPECTROGRAM_INVERSION_AVAILABLE = False
+    VOCOS_AVAILABLE = False
     _spec_detector = None
     _spec_inverter = None
 
@@ -169,6 +170,19 @@ def _encode_wav_b64(waveform: Any, sample_rate: int = 22050) -> str:
     except Exception as e:
         print(f"WAV encoding error: {e}")
         return ""
+
+# ── Spectrogram preset auto-selector ──────────────────────────────────────
+
+def _auto_select_preset(detected_type: str, confidence: float) -> str:
+    """Pick the best inversion preset from detector output."""
+    if confidence < 0.40:
+        return 'librosa_mel'
+    mapping = {
+        'mel':        'librosa_mel',
+        'linear':     'wikipedia_speech',
+        'log_linear': 'chrome_music_lab',
+    }
+    return mapping.get(str(detected_type).lower(), 'librosa_mel')
 
 # ── Redis ──────────────────────────────────────────────────────────────────
 
@@ -255,6 +269,7 @@ async def health():
             "image_pipeline": IMAGE_PIPELINE_AVAILABLE,
             "audio_pipeline": AUDIO_PIPELINE_AVAILABLE,
             "spectrogram_inversion": SPECTROGRAM_INVERSION_AVAILABLE,
+            "vocos_available": VOCOS_AVAILABLE,
             "foundry_agent": FOUNDRY_AGENT_AVAILABLE,
         },
         "foundry": (
@@ -337,6 +352,25 @@ async def analyze_image(file: UploadFile = File(...)):
 
 # ── Analyze audio ──────────────────────────────────────────────────────────
 
+def _sanitize_for_json(obj):
+    """Replace NaN/Inf floats with 0 so JSON serialization doesn't fail."""
+    import math
+    if isinstance(obj, float):
+        return 0.0 if (math.isnan(obj) or math.isinf(obj)) else obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_for_json(v) for v in obj]
+    if NUMPY_AVAILABLE and isinstance(obj, np.floating):
+        val = float(obj)
+        return 0.0 if (math.isnan(val) or math.isinf(val)) else val
+    if NUMPY_AVAILABLE and isinstance(obj, np.integer):
+        return int(obj)
+    if NUMPY_AVAILABLE and isinstance(obj, np.ndarray):
+        return _sanitize_for_json(obj.tolist())
+    return obj
+
+
 @app.post("/api/analyze-audio")
 async def analyze_audio(file: UploadFile = File(...)):
     if file.content_type not in ["audio/mpeg", "audio/wav", "audio/ogg", "audio/x-wav"]:
@@ -349,7 +383,7 @@ async def analyze_audio(file: UploadFile = File(...)):
             shutil.copyfileobj(file.file, f)
 
         if AUDIO_ANALYZER_AVAILABLE and _audio_analyzer is not None:
-            features = _audio_analyzer.analyze(tmp_path)
+            features = _sanitize_for_json(_audio_analyzer.analyze(tmp_path))
             if "error" in features:
                 raise HTTPException(status_code=500, detail=features["error"])
             return {
@@ -377,12 +411,12 @@ async def analyze_audio(file: UploadFile = File(...)):
         bass_energy = float(S[freqs <= 250, :].mean()) if S[freqs <= 250, :].size else 0.0
         treble_energy = float(S[freqs >= 4000, :].mean()) if S[freqs >= 4000, :].size else 0.0
 
-        features = {
+        features = _sanitize_for_json({
             "bpm": round(float(tempo), 2),
             "bass_energy": round(bass_energy, 6),
             "treble_energy": round(treble_energy, 6),
             "spectral_centroid": round(centroid, 2),
-        }
+        })
         return {
             "status": "analysis_complete",
             "filename": file.filename,
@@ -431,7 +465,7 @@ async def generate_image_to_audio(
     audio_array = result.pop("audio_array", None)
     audio_b64 = _encode_wav_b64(audio_array, result.get("sample_rate", 22050)) if audio_array is not None else ""
 
-    return {
+    return _sanitize_for_json({
         "status": "success",
         "audio_b64": audio_b64,
         "sample_rate": result.get("sample_rate", 22050),
@@ -443,7 +477,7 @@ async def generate_image_to_audio(
         "cache_hit": False,
         "mode": mode,
         "style": style,
-    }
+    })
 
 # ── Generate: Image → Audio with Foundry IQ (Sprint 3) ─────────────────────
 
@@ -513,9 +547,38 @@ async def generate_image_to_audio_foundry(
         # 4. Encode WAV
         audio_b64 = _encode_wav_b64(waveform, _dsp_synthesizer.sr)
 
+        # 5. Generate spectrogram image of the synthesised audio
+        spectrogram_b64 = ""
+        if LIBROSA_AVAILABLE and NUMPY_AVAILABLE:
+            try:
+                import matplotlib
+                matplotlib.use("Agg")
+                import matplotlib.pyplot as plt
+
+                sr = _dsp_synthesizer.sr
+                S = librosa.feature.melspectrogram(y=waveform, sr=sr, n_mels=128, n_fft=2048, hop_length=512)
+                S_db = librosa.power_to_db(S, ref=np.max)
+
+                fig, ax = plt.subplots(1, 1, figsize=(6, 2), dpi=100)
+                img = librosa.display.specshow(S_db, sr=sr, hop_length=512, x_axis="time", y_axis="mel", ax=ax, cmap="viridis")
+                ax.set_title("")
+                ax.set_xlabel("")
+                ax.set_ylabel("")
+                ax.set_xticks([])
+                ax.set_yticks([])
+                fig.tight_layout(pad=0)
+                buf = io.BytesIO()
+                fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
+                plt.close(fig)
+                buf.seek(0)
+                spectrogram_b64 = f"data:image/png;base64,{base64.b64encode(buf.read()).decode()}"
+            except Exception:
+                pass
+
         return {
             **foundry_response,
             "audio_b64": audio_b64,
+            "spectrogram": spectrogram_b64,
             "sample_rate": _dsp_synthesizer.sr,
             "duration": duration,
             "image_features": image_features,
@@ -529,7 +592,7 @@ async def generate_image_to_audio_foundry(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Foundry pipeline failed: {e}")
 
-    return result
+    return _sanitize_for_json(result)
 
 
 # ── Generate: Audio → Visual ───────────────────────────────────────────────
@@ -564,7 +627,7 @@ async def generate_audio_to_visual(
     if result.get("status") not in ("success", "fallback_success"):
         raise HTTPException(status_code=500, detail=result.get("error", "Generation failed"))
 
-    return {
+    return _sanitize_for_json({
         "status": "success",
         "visual_config": result.get("visual_config", {}),
         "audio_features": result.get("audio_features", {}),
@@ -573,7 +636,195 @@ async def generate_audio_to_visual(
         "cache_hit": False,
         "mode": mode,
         "style": style,
+    })
+
+# ── Generate: Audio → Visual with Foundry IQ ──────────────────────────────
+
+@app.post("/api/generate/audio-to-visual-foundry")
+async def generate_audio_to_visual_foundry(
+    file: UploadFile = File(...),
+    mode: str = "classic",
+    style: str = "",
+):
+    if not FOUNDRY_AGENT_AVAILABLE or not _foundry_agent:
+        raise HTTPException(status_code=503, detail="Foundry agent unavailable")
+    if file.content_type not in ["audio/mpeg", "audio/wav", "audio/x-wav", "audio/ogg", "audio/mp3"]:
+        raise HTTPException(status_code=400, detail="Audio files only")
+
+    audio_bytes = await file.read()
+    loop = asyncio.get_event_loop()
+
+    # Step 1: analyze audio features (analyzer needs a file path, not raw bytes)
+    if AUDIO_ANALYZER_AVAILABLE and _audio_analyzer is not None:
+        tmp_dir = tempfile.mkdtemp(prefix="spectraverse_a2v_")
+        try:
+            tmp_path = os.path.join(tmp_dir, file.filename or "upload.bin")
+            with open(tmp_path, "wb") as f:
+                f.write(audio_bytes)
+            audio_features = await loop.run_in_executor(
+                None, lambda: _audio_analyzer.analyze(tmp_path)
+            )
+            if "error" in audio_features:
+                audio_features = {}
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+    else:
+        audio_features = {}
+
+    # Step 2: Foundry IQ visual grounding
+    foundry_result = await loop.run_in_executor(
+        None, lambda: _foundry_agent.audio_to_visual(audio_features, style)
+    )
+
+    render_mode = foundry_result.get("render_mode", "orbits")
+    palette = foundry_result.get("palette", ["#7c3aed", "#2563eb", "#06b6d4"])
+
+    # Build visual_config compatible with VisualOutputPanel
+    visual_config = {
+        "type": "canvas2d",
+        "render_mode": render_mode,
+        "colors": {"palette": palette},
+        "particles": {"count": 200, "speed": 1.2},
+        "audio_sync": {"bpm": float(audio_features.get("bpm", 90))},
     }
+
+    return _sanitize_for_json({
+        "status": "visual_generated",
+        "visual_config": visual_config,
+        "visual_params": {},
+        "safety_flags": [],
+        "cache_hit": False,
+        "style": style,
+        "mode": render_mode,
+        "audio_features": audio_features,
+        "image_description": f"Audio: {audio_features.get('genre','unknown')} {audio_features.get('vibe','')} at {audio_features.get('bpm', 90)} BPM",
+        "citations": foundry_result.get("citations", []),
+        "reasoning_steps": foundry_result.get("reasoning_steps", []),
+        "provider": foundry_result.get("provider", "mock"),
+        "is_mock": foundry_result.get("is_mock", True),
+        "is_fully_live": not foundry_result.get("is_mock", True),
+    })
+
+
+# ── Audio to Spectrogram (Sprint 3) ──────────────────────────────────────────
+
+@app.post("/api/audio-to-spectrogram")
+async def audio_to_spectrogram(
+    file: UploadFile = File(...),
+    colormap: str = "viridis",
+    n_mels: int = 128,
+    n_fft: int = 2048,
+    hop_length: int = 512,
+):
+    """
+    Convert an audio file to a mel spectrogram PNG image.
+
+    Query params:
+        colormap:   viridis | magma | plasma | inferno | hot | jet (default: viridis)
+        n_mels:     number of mel bins (default: 128)
+        n_fft:      FFT window size (default: 2048)
+        hop_length: hop between frames (default: 512)
+    """
+    if not LIBROSA_AVAILABLE:
+        raise HTTPException(status_code=503, detail="librosa not installed — required for spectrogram generation")
+
+    if file.content_type not in ["audio/mpeg", "audio/wav", "audio/x-wav", "audio/ogg", "audio/mp3"]:
+        raise HTTPException(status_code=400, detail="Upload an audio file (MP3, WAV, OGG)")
+
+    audio_bytes = await file.read()
+
+    def _run():
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        # Load audio
+        tmp_dir = tempfile.mkdtemp(prefix="spectraverse_a2s_")
+        try:
+            tmp_path = os.path.join(tmp_dir, file.filename or "upload.bin")
+            with open(tmp_path, "wb") as f:
+                f.write(audio_bytes)
+            y, sr = librosa.load(tmp_path, sr=None, mono=True)
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        # Generate mel spectrogram
+        S = librosa.feature.melspectrogram(
+            y=y, sr=sr, n_fft=n_fft, hop_length=hop_length, n_mels=n_mels
+        )
+        S_db = librosa.power_to_db(S, ref=np.max)
+
+        # Encode raw spectrogram data for lossless round-trip inversion
+        raw_bytes = S_db.astype(np.float32).tobytes()
+        raw_b64 = base64.b64encode(raw_bytes).decode()
+
+        # Render to PNG — embed exact frame count + hop/sr in PNG tEXt chunk
+        # so that inversion can resize the magnitude array back to the correct
+        # number of time frames instead of treating every pixel column as a frame.
+        actual_frames = S_db.shape[1]
+        fig, ax = plt.subplots(figsize=(10, 4))
+        img = librosa.display.specshow(
+            S_db, sr=sr, hop_length=hop_length,
+            x_axis="time", y_axis="mel", ax=ax, cmap=colormap,
+        )
+        ax.set_title(f"Mel Spectrogram — {file.filename or 'audio'}")
+        plt.colorbar(img, ax=ax, format="%+2.0f dB")
+        plt.tight_layout()
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+        buf.seek(0)
+        plt.close(fig)
+
+        # Inject frame metadata into the PNG tEXt chunk so the inverter
+        # can recover exact timing without raw_params.
+        try:
+            from PIL import Image as _PILImage, PngImagePlugin as _PngMeta
+            _png = _PILImage.open(buf)
+            _meta = _PngMeta.PngInfo()
+            _meta.add_text("spectraverse_frames", str(actual_frames))
+            _meta.add_text("spectraverse_hop_length", str(hop_length))
+            _meta.add_text("spectraverse_sr", str(sr))
+            _meta.add_text("spectraverse_n_mels", str(n_mels))
+            buf2 = io.BytesIO()
+            _png.save(buf2, format="png", pnginfo=_meta)
+            buf2.seek(0)
+            img_b64 = base64.b64encode(buf2.read()).decode()
+        except Exception:
+            buf.seek(0)
+            img_b64 = base64.b64encode(buf.read()).decode()
+
+        duration = len(y) / sr
+
+        return {
+            "status": "success",
+            "spectrogram_b64": img_b64,
+            "spectrogram_raw_b64": raw_b64,
+            "raw_params": {
+                "sr": sr,
+                "n_fft": n_fft,
+                "hop_length": hop_length,
+                "n_mels": n_mels,
+                "shape": list(S_db.shape),
+                "ref_power": "np.max",
+            },
+            "sample_rate": sr,
+            "duration": round(duration, 3),
+            "n_mels": n_mels,
+            "n_fft": n_fft,
+            "hop_length": hop_length,
+            "colormap": colormap,
+            "frames": S_db.shape[1],
+        }
+
+    loop = asyncio.get_event_loop()
+    try:
+        result = await loop.run_in_executor(None, _run)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Spectrogram generation failed: {e}")
+
+    return result
+
 
 # ── Mappings ───────────────────────────────────────────────────────────────
 
@@ -608,6 +859,12 @@ async def invert_spectrogram(
     db_max: float = 0.0,
     n_iter: int = 64,
     preset: str = "librosa_mel",
+    ai_mode: bool = False,
+    raw_data: UploadFile = File(None),
+    raw_sr: int = 22050,
+    raw_n_fft: int = 2048,
+    raw_hop_length: int = 512,
+    raw_n_mels: int = 128,
 ):
     """
     Reconstruct audio from a spectrogram image using Griffin-Lim inversion.
@@ -618,9 +875,124 @@ async def invert_spectrogram(
         db_min:   minimum dB value in the color scale (default: -80)
         db_max:   maximum dB value in the color scale (default: 0)
         n_iter:   Griffin-Lim iterations — higher = better quality, slower (default: 64)
+        raw_b64:  base64-encoded raw float32 mel spectrogram (dB). When provided,
+                  skips all image processing (detection, preprocessing, colormap
+                  inversion) and inverts directly from the raw data — lossless path.
     """
     if not SPECTROGRAM_INVERSION_AVAILABLE or _spec_inverter is None:
         raise HTTPException(status_code=503, detail="Spectrogram inversion unavailable — check scipy/librosa/Pillow deps")
+
+    # ── Raw data lossless path ──────────────────────────────────────────────
+    raw_b64_content = None
+    if raw_data is not None:
+        raw_b64_content = await raw_data.read()
+
+    if raw_b64_content:
+        def _run_raw():
+            import librosa
+            from app.backend_spectrogram_inverter import SpectrogramInverter
+
+            # Decode raw float32 numpy array from base64
+            raw_bytes = base64.b64decode(raw_b64_content)
+            S_db = np.frombuffer(raw_bytes, dtype=np.float32).copy()
+
+            # Use params from the request (sent by frontend from raw_params)
+            inferred_n_mels = raw_n_mels
+            total_elements = len(S_db)
+
+            # Verify shape is compatible
+            if total_elements % inferred_n_mels != 0:
+                for candidate in [256, 128, 80, 64]:
+                    if total_elements % candidate == 0:
+                        inferred_n_mels = candidate
+                        break
+            frames = total_elements // inferred_n_mels
+            S_db = S_db.reshape(inferred_n_mels, frames)
+
+            S_power = librosa.db_to_power(S_db)
+            S_amplitude = np.sqrt(S_power)
+
+            raw_n_iter = max(n_iter, 100)
+
+            # Create inverter with exact params
+            inverter = SpectrogramInverter(
+                sr=raw_sr,
+                n_mels=inferred_n_mels,
+                n_fft=raw_n_fft,
+                hop_length=raw_hop_length,
+                n_iter=raw_n_iter,
+                scale="mel",
+            )
+
+            # Invert using mel_to_audio directly (bypasses _cap_input_size since
+            # we know the exact shape is correct)
+            audio = librosa.feature.inverse.mel_to_audio(
+                S_amplitude,
+                sr=raw_sr,
+                n_fft=raw_n_fft,
+                hop_length=raw_hop_length,
+                win_length=raw_n_fft,
+                window="hann",
+                center=True,
+                power=1.0,
+                n_iter=raw_n_iter,
+            )
+
+            # Normalize
+            audio = audio.astype(np.float32)
+            peak = float(np.max(np.abs(audio)))
+            if peak > 0:
+                audio = audio / peak * 0.95
+
+            # Fade in/out to avoid clicks
+            fade_samples = int(raw_sr * 0.005)
+            if len(audio) > fade_samples * 2:
+                fade_in = np.linspace(0, 1, fade_samples, dtype=np.float32)
+                fade_out = np.linspace(1, 0, fade_samples, dtype=np.float32)
+                audio[:fade_samples] *= fade_in
+                audio[-fade_samples:] *= fade_out
+
+            duration = len(audio) / raw_sr
+
+            audio_b64 = inverter.encode_wav_b64(audio)
+            comparison = inverter.generate_comparison_spectrogram(audio)
+
+            return {
+                "status": "success",
+                "audio_b64": audio_b64,
+                "sample_rate": raw_sr,
+                "duration": round(duration, 3),
+                "reconstruction_method": "griffin_lim_raw",
+                "n_iter_used": raw_n_iter,
+                "preset_used": "raw_lossless",
+                "colormap_used": "n/a",
+                "spectrogram_type": "mel",
+                "confidence": 1.0,
+                "comparison_spectrogram": comparison,
+                "preset_auto_selected": False,
+                "auto_selected_reason": "Lossless raw data path — no image processing needed",
+                "meta": {
+                    "raw_path": True,
+                    "n_mels": inferred_n_mels,
+                    "n_fft": raw_n_fft,
+                    "hop_length": raw_hop_length,
+                    "sr": raw_sr,
+                    "n_iter": raw_n_iter,
+                    "input_shape": [inferred_n_mels, frames],
+                    "duration_seconds": round(duration, 3),
+                },
+                "vision_reasoning": None,
+                "ai_mode_used": False,
+            }
+
+        loop = asyncio.get_event_loop()
+        try:
+            result = await loop.run_in_executor(None, _run_raw)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Raw inversion failed: {e}")
+        return result
+
+    # ── Image-based inversion path (original) ───────────────────────────────
 
     if file.content_type not in ["image/png", "image/jpeg", "image/webp"]:
         raise HTTPException(status_code=400, detail="Upload a PNG, JPEG or WEBP spectrogram image")
@@ -629,38 +1001,102 @@ async def invert_spectrogram(
     image_bytes = await file.read()
 
     def _run():
-        # 1. Detect
+        # 0. Read PNG frame metadata (written by audio_to_spectrogram endpoint).
+        #    If present, this tells us exactly how many time frames the original
+        #    audio had so we can resize the pixel-wide magnitude back to true size.
+        sv_frames = None   # avoid int|None syntax — not supported in Python < 3.10
+        sv_hop = None
+        sv_sr = None
+        sv_n_mels = None
+        try:
+            from PIL import Image as _PILImg
+            _pil = _PILImg.open(io.BytesIO(image_bytes))
+            _txt = getattr(_pil, "info", {})
+            if "spectraverse_frames" in _txt:
+                sv_frames = int(_txt["spectraverse_frames"])
+                sv_hop = int(_txt.get("spectraverse_hop_length", "512"))
+                sv_sr = int(_txt.get("spectraverse_sr", "22050"))
+                sv_n_mels = int(_txt.get("spectraverse_n_mels", "128"))
+        except Exception:
+            pass
+
+        # 1. Detect — reject non-spectrograms early to prevent OOM
         detection = _spec_detector.detect(image_bytes)
-        if not detection["is_spectrogram"] and detection["confidence"] < 0.3:
+        if detection["confidence"] < 0.40:
             raise ValueError(
                 f"Image does not appear to be a spectrogram "
-                f"(confidence: {detection['confidence']:.2f}). "
-                f"Try a screenshot from a spectrogram viewer."
+                f"(confidence: {detection['confidence']:.0%}). "
+                f"Upload a screenshot from a spectrogram viewer (Audacity, librosa, etc.)."
             )
 
-        # 2. Use detected colormap if better than default
-        effective_colormap = (
-            detection.get("colormap_guess", colormap)
-            if detection["confidence"] > 0.5
-            else colormap
-        )
+        # 1b. AI mode: ask vision LLM to infer spectrogram parameters
+        vision_result: Dict[str, Any] = {}
+        if ai_mode and FOUNDRY_AGENT_AVAILABLE and _foundry_agent:
+            vision_result = _foundry_agent.describe_spectrogram(image_bytes)
+
+        # 2. Use detected colormap if better than default; AI result takes priority
+        if vision_result:
+            effective_colormap = vision_result.get("colormap", colormap)
+        else:
+            effective_colormap = (
+                detection.get("colormap_guess", colormap)
+                if detection["confidence"] > 0.5
+                else colormap
+            )
+
+        # 2b. Auto-select preset from detected type; AI scale overrides when available
+        detected_type = detection.get("type", "unknown")
+        if vision_result:
+            ai_scale = vision_result.get("scale", detected_type)
+            auto_preset = _auto_select_preset(ai_scale, 1.0)
+        else:
+            auto_preset = _auto_select_preset(detected_type, detection["confidence"])
+        effective_preset = preset if preset != 'librosa_mel' else auto_preset
+
+        # 2c. AI db range overrides defaults when available
+        effective_db_min = float(vision_result.get("db_min", db_min)) if vision_result else db_min
+        effective_db_max = float(vision_result.get("db_max", db_max)) if vision_result else db_max
 
         # 3. Pre-process: crop + colormap invert → magnitude array
         from app.backend_spectrogram_preprocessor import SpectrogramPreprocessor
         preprocessor = SpectrogramPreprocessor(
             colormap=effective_colormap,
-            db_min=db_min,
-            db_max=db_max,
+            db_min=effective_db_min,
+            db_max=effective_db_max,
             auto_crop=True,
         )
         magnitude, prep_meta = preprocessor.extract_magnitude(image_bytes)
 
-        # 4. Invert via Griffin-Lim (using preset config)
+        # 3b. Frame-accurate resize: if the PNG carried spectraverse metadata,
+        #     resize the magnitude width (time axis) from pixel-count → actual
+        #     frame count using numpy 1-D interpolation per row.
+        #     PIL fromarray on float32 is unreliable across Pillow versions — avoid it.
+        if sv_frames and sv_frames > 0 and magnitude.shape[1] != sv_frames:
+            try:
+                _orig_w = magnitude.shape[1]
+                _x_old = np.linspace(0.0, 1.0, _orig_w)
+                _x_new = np.linspace(0.0, 1.0, sv_frames)
+                _resized = np.empty((magnitude.shape[0], sv_frames), dtype=np.float32)
+                for _row in range(magnitude.shape[0]):
+                    _resized[_row] = np.interp(_x_new, _x_old, magnitude[_row])
+                magnitude = _resized
+                prep_meta["frame_resize"] = f"{_orig_w}px → {sv_frames} frames"
+            except Exception:
+                pass  # fallback: use uncorrected pixel width
+
+        # 4. Invert via Griffin-Lim — if metadata gave exact params, use those;
+        #    otherwise fall back to the detected/user-selected preset.
         from app.backend_spectrogram_inverter import SpectrogramInverter
-        try:
-            inverter = SpectrogramInverter.from_preset(preset, n_iter=n_iter)
-        except ValueError:
-            inverter = SpectrogramInverter(n_iter=n_iter)
+        if sv_sr and sv_hop and sv_n_mels:
+            inverter = SpectrogramInverter(
+                sr=sv_sr, n_mels=sv_n_mels, n_fft=2048,
+                hop_length=sv_hop, n_iter=n_iter, scale="mel",
+            )
+        else:
+            try:
+                inverter = SpectrogramInverter.from_preset(effective_preset, n_iter=n_iter)
+            except ValueError:
+                inverter = SpectrogramInverter(n_iter=n_iter)
 
         audio, inv_meta = inverter.invert(magnitude)
 
@@ -675,12 +1111,19 @@ async def invert_spectrogram(
             "duration": inv_meta["duration_seconds"],
             "reconstruction_method": "griffin_lim",
             "n_iter_used": n_iter,
-            "preset_used": preset,
+            "preset_used": effective_preset,
             "colormap_used": effective_colormap,
             "spectrogram_type": detection.get("type", "unknown"),
             "confidence": detection["confidence"],
             "comparison_spectrogram": comparison,
+            "preset_auto_selected": effective_preset != preset,
+            "auto_selected_reason": (
+                f"Detector identified {detected_type} scale with {detection['confidence']:.0%} confidence"
+                if effective_preset != preset else ""
+            ),
             "meta": {**detection, **prep_meta, **inv_meta},
+            "vision_reasoning": vision_result.get("reasoning_step") if ai_mode else None,
+            "ai_mode_used": ai_mode and FOUNDRY_AGENT_AVAILABLE,
         }
 
     loop = asyncio.get_event_loop()
@@ -688,6 +1131,8 @@ async def invert_spectrogram(
         result = await loop.run_in_executor(None, _run)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except MemoryError:
+        raise HTTPException(status_code=422, detail="Image too large for spectrogram inversion. Upload a smaller spectrogram screenshot.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Inversion failed: {e}")
 

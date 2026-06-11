@@ -4,10 +4,11 @@ Converts a spectrogram PNG into a numpy magnitude array ready for Griffin-Lim.
 
 Pipeline:
 1. Load image
-2. Auto-crop axes/margins (entropy-based)
-3. Invert colormap (RGB pixels → [0,1] normalised values)
-4. Convert dB scale → linear amplitude
-5. Return (n_mels, T) float32 array
+2. Strip colour-bar legend (right edge, monotonic-gradient columns)
+3. Auto-crop axes/margins (entropy-based)
+4. Invert colormap (RGB pixels → [0,1] normalised values)
+5. Convert dB scale → linear amplitude
+6. Return (n_mels, T) float32 array
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ from io import BytesIO
 DEFAULT_DB_MIN = -80.0
 DEFAULT_DB_MAX = 0.0
 SUPPORTED_COLORMAPS = ["viridis", "magma", "plasma", "inferno", "hot", "jet", "coolwarm"]
+
+MAX_PIXELS = 1024 * 512  # Hard cap: ~0.5 megapixels before any processing
 
 
 class SpectrogramPreprocessor:
@@ -48,6 +51,8 @@ class SpectrogramPreprocessor:
             meta: dict with crop bounds, colormap, db_range, shape info
         """
         img = self._load(image_bytes)
+        # Strip colour-bar legend on the right edge before any other processing
+        img = self._strip_colorbar(img)
         original_shape = img.shape
 
         if self.auto_crop:
@@ -83,7 +88,49 @@ class SpectrogramPreprocessor:
     def _load(self, image_bytes: bytes) -> np.ndarray:
         from PIL import Image
         img = Image.open(BytesIO(image_bytes)).convert("RGB")
+        # Downscale oversized images before any heavy processing
+        w, h = img.size
+        if w * h > MAX_PIXELS:
+            scale = (MAX_PIXELS / (w * h)) ** 0.5
+            img = img.resize((int(w * scale), int(h * scale)), Image.BILINEAR)
         return np.array(img, dtype=np.float32) / 255.0
+
+    def _strip_colorbar(self, img: np.ndarray) -> np.ndarray:
+        """
+        Strip colour-bar columns from the right edge.
+        A colour-bar column has near-monotonic pixel values top-to-bottom.
+        """
+        if img.ndim == 2:
+            gray = img.astype(np.float32)
+        else:
+            gray = img.mean(axis=2).astype(np.float32)
+
+        H, W = gray.shape[:2]
+        max_strip = max(1, int(W * 0.15))   # never strip more than 15% of width
+        strip_until = W                      # exclusive right boundary to keep
+
+        for col_idx in range(W - 1, W - 1 - max_strip, -1):
+            col = gray[:, col_idx]
+            # Spearman rank correlation
+            n = len(col)
+            ranks = np.argsort(np.argsort(col)).astype(np.float32)
+            row_ranks = np.argsort(np.argsort(np.arange(n).astype(np.float32))).astype(np.float32)
+            cov = np.mean((ranks - ranks.mean()) * (row_ranks - row_ranks.mean()))
+            std_prod = ranks.std() * row_ranks.std()
+            if std_prod < 1e-9:
+                break   # constant column — stop
+            rho = cov / std_prod
+            if abs(rho) > 0.90:
+                strip_until = col_idx
+            else:
+                break   # first non-monotonic column — stop
+
+        if strip_until < W:
+            if img.ndim == 2:
+                return img[:, :strip_until]
+            else:
+                return img[:, :strip_until, :]
+        return img
 
     def _crop_axes(self, img: np.ndarray) -> Tuple[np.ndarray, Tuple]:
         """

@@ -10,6 +10,7 @@ type Props = {
   provider?: 'azure' | 'openai' | 'gemini' | 'groq' | 'mock';
   isFullyLive: boolean;
   isMock: boolean;
+  narration?: string;
 };
 
 const PROVIDER_BADGE: Record<string, { label: string; className: string }> = {
@@ -27,6 +28,7 @@ export default function FoundryReasoningPanel({
   provider = 'mock',
   isFullyLive,
   isMock,
+  narration,
 }: Props) {
   const stageColor: Record<string, string> = {
     vision:    'text-blue-300 border-blue-500/30 bg-blue-500/10',
@@ -104,6 +106,18 @@ export default function FoundryReasoningPanel({
         </div>
       )}
 
+      {/* Narration — the agent's cited summary */}
+      {narration && (
+        <div className="px-5 py-3 border-b border-slate-800">
+          <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">
+            Agent narration
+          </p>
+          <p className="text-sm text-slate-200 leading-relaxed">
+            {narration}
+          </p>
+        </div>
+      )}
+
       {/* Citations */}
       {citations.length > 0 && (
         <div className="px-5 py-3">
@@ -122,11 +136,22 @@ export default function FoundryReasoningPanel({
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-slate-200 truncate">
-                      {c.title}
+                      {c.source_url ? (
+                        <a
+                          href={c.source_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="hover:underline hover:text-emerald-300 transition"
+                        >
+                          {c.doc_key} <span className="text-slate-500">↗</span>
+                        </a>
+                      ) : (
+                        c.doc_key
+                      )}
                     </p>
-                    <p className="text-xs text-slate-500 truncate">
-                      {c.doc_key}
-                    </p>
+                    {c.title && (
+                      <p className="text-xs text-slate-500 truncate">{c.title}</p>
+                    )}
                     <p className="text-xs text-slate-400 mt-1 leading-relaxed line-clamp-3">
                       {c.content_snippet}
                     </p>

@@ -1,154 +1,152 @@
 "use client";
 
 import { useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import UploadZone from "../components/UploadZone";
 import SpectrogramUploadZone from "../components/SpectrogramUploadZone";
 
-export default function Home() {
-  const [mode, setMode] = useState<"classic" | "creative">("classic");
-  const [style, setStyle] = useState<string>("");
+type Tab = "image" | "audio" | "spectrogram";
 
-  const styles = {
-    creative: [
-      "Funny",
-      "Horror",
-      "Emotional",
-      "Bassy",
-      "Electrifying",
-      "Spiritual",
-      "Experimental",
-    ],
-  };
+const TABS: { id: Tab; icon: string; label: string }[] = [
+  { id: "spectrogram", icon: "🔬", label: "Spectrogram Lab" },
+  { id: "image",       icon: "🎨", label: "Image → Audio" },
+  { id: "audio",       icon: "🎵", label: "Audio → Visual" },
+];
+
+export default function Home() {
+  const [activeTab, setActiveTab] = useState<Tab>("spectrogram");
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-black text-white p-8">
-      {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="max-w-6xl mx-auto mb-12"
-      >
-        <h1 className="text-6xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent mb-2">
-          SpectraVerse
-        </h1>
-        <p className="text-xl text-gray-300">Hear images. Visualize music. Decode spectrograms.</p>
-      </motion.div>
+    <main className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-black text-white">
+      {/* ── Header ───────────────────────────────────────────────── */}
+      <div className="px-8 pt-10 pb-6 max-w-3xl mx-auto">
+        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
+          <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent mb-1">
+            SpectraVerse
+          </h1>
+          <p className="text-lg text-gray-400">Hear images. Visualize music. Decode spectrograms.</p>
+        </motion.div>
+      </div>
 
-      {/* Mode & Style Selector */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.2 }}
-        className="max-w-6xl mx-auto mb-12"
-      >
-        <div className="flex flex-wrap gap-4 mb-6">
-          <button
-            onClick={() => setMode("classic")}
-            className={`px-6 py-3 rounded-lg font-semibold transition transform hover:scale-105 ${
-              mode === "classic"
-                ? "bg-blue-500 text-white shadow-lg shadow-blue-500/50"
-                : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-            }`}
-          >
-            Classic Mode
-          </button>
-          <button
-            onClick={() => setMode("creative")}
-            className={`px-6 py-3 rounded-lg font-semibold transition transform hover:scale-105 ${
-              mode === "creative"
-                ? "bg-purple-500 text-white shadow-lg shadow-purple-500/50"
-                : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-            }`}
-          >
-            Creative Mode
-          </button>
+      {/* ── Tab bar ──────────────────────────────────────────────── */}
+      <div className="sticky top-0 z-30 bg-gradient-to-b from-indigo-950/90 to-purple-950/80 backdrop-blur-md border-b border-white/10">
+        <div className="max-w-3xl mx-auto px-8 flex gap-1 py-2">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                activeTab === t.id
+                  ? "bg-white/10 text-white shadow-sm"
+                  : "text-gray-400 hover:text-gray-200 hover:bg-white/5"
+              }`}
+            >
+              <span>{t.icon}</span>
+              <span>{t.label}</span>
+            </button>
+          ))}
         </div>
-
-        {mode === "creative" && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            className="flex flex-wrap gap-2"
-          >
-            {styles.creative.map((s) => (
-              <button
-                key={s}
-                onClick={() => setStyle(s)}
-                className={`px-4 py-2 rounded-full text-sm font-semibold transition ${
-                  style === s
-                    ? "bg-gradient-to-r from-pink-500 to-purple-500 text-white"
-                    : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+        {/* sliding underline */}
+        <div className="max-w-3xl mx-auto px-8 relative h-0.5">
+          {TABS.map((t) => (
+            activeTab === t.id && (
+              <motion.div
+                key={t.id}
+                layoutId="tab-underline"
+                className={`absolute h-0.5 rounded-full ${
+                  t.id === "image" ? "bg-blue-400" :
+                  t.id === "audio" ? "bg-purple-400" : "bg-teal-400"
                 }`}
-              >
-                {s}
-              </button>
-            ))}
-          </motion.div>
-        )}
-      </motion.div>
-
-      {/* Section 1 & 2: Image↔Audio transforms */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.4 }}
-        className="max-w-6xl mx-auto grid md:grid-cols-2 gap-8 mb-12"
-      >
-        <div>
-          <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-            <span>🎨</span> Image to Audio
-          </h2>
-          <UploadZone type="image" mode={mode} style={style} />
+                style={{
+                  width: "calc(33.33% - 0.5rem)",
+                  left: `calc(${TABS.findIndex(x => x.id === t.id)} * 33.33%)`,
+                }}
+              />
+            )
+          ))}
         </div>
+      </div>
 
-        <div>
-          <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-            <span>🎵</span> Audio to Visual
-          </h2>
-          <UploadZone type="audio" mode={mode} style={style} />
-        </div>
-      </motion.div>
+      {/* ── Tab content ──────────────────────────────────────────── */}
+      <div className="max-w-3xl mx-auto px-8 py-8">
+        <AnimatePresence mode="wait">
+          {activeTab === "spectrogram" && (
+            <TabPane key="spectrogram">
+              <TabHeader
+                icon="🔬"
+                title="Spectrogram Lab"
+                subtitle="Convert audio to spectrograms, or reconstruct audio from spectrogram images via Griffin-Lim inversion."
+                accentClass="text-teal-300"
+              />
+              <SpectrogramUploadZone />
+            </TabPane>
+          )}
 
-      {/* Section 3: Spectrogram → Audio (teal theme) */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.6 }}
-        className="max-w-6xl mx-auto"
-      >
-        {/* Divider */}
-        <div className="flex items-center gap-4 mb-8">
-          <div className="h-px flex-1 bg-gradient-to-r from-transparent via-teal-500/40 to-transparent" />
-          <span className="text-xs font-semibold text-teal-500 uppercase tracking-widest px-3">
-            Spectrogram Inversion
-          </span>
-          <div className="h-px flex-1 bg-gradient-to-r from-transparent via-teal-500/40 to-transparent" />
-        </div>
+          {activeTab === "image" && (
+            <TabPane key="image">
+              <TabHeader
+                icon="🎨"
+                title="Image to Audio"
+                subtitle="Upload an image and let Foundry IQ compose music grounded in colour theory and music science."
+                accentClass="text-blue-300"
+              />
+              <UploadZone type="image" mode="classic" style="" />
+            </TabPane>
+          )}
 
-        <div className="max-w-2xl mx-auto">
-          <div className="mb-4">
-            <h2 className="text-2xl font-bold flex items-center gap-2 text-teal-300">
-              <span>🔬</span> Spectrogram → Audio
-            </h2>
-            <p className="text-sm text-gray-400 mt-1">
-              Upload any mel or STFT spectrogram image — a screenshot, export, or photo —
-              and hear the audio reconstructed from it using Griffin-Lim inversion.
-            </p>
-          </div>
-          <SpectrogramUploadZone />
-        </div>
-      </motion.div>
+          {activeTab === "audio" && (
+            <TabPane key="audio">
+              <TabHeader
+                icon="🎵"
+                title="Audio to Visual"
+                subtitle="Upload audio and watch Foundry IQ turn timbres, BPM, and vibe into a cited generative visual."
+                accentClass="text-purple-300"
+              />
+              <UploadZone type="audio" mode="classic" style="" />
+            </TabPane>
+          )}
+        </AnimatePresence>
+      </div>
 
-      {/* Footer */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.8 }}
-        className="max-w-6xl mx-auto mt-16 text-center text-gray-400"
-      >
-        <p>✨ AI-powered multimodal transformation · Spectrogram inversion via Griffin-Lim</p>
-      </motion.div>
+      {/* ── Footer ───────────────────────────────────────────────── */}
+      <div className="max-w-3xl mx-auto px-8 pb-12 text-center text-gray-500 text-sm">
+        AI-powered multimodal transformation · Foundry IQ cited reasoning · Griffin-Lim spectrogram inversion
+      </div>
     </main>
   );
 }
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function TabPane({ children }: { children: React.ReactNode }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -6 }}
+      transition={{ duration: 0.18 }}
+      className="space-y-6"
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+function TabHeader({
+  icon, title, subtitle, accentClass,
+}: {
+  icon: string;
+  title: string;
+  subtitle: string;
+  accentClass: string;
+}) {
+  return (
+    <div className="mb-2">
+      <h2 className={`text-2xl font-bold flex items-center gap-2 ${accentClass}`}>
+        <span>{icon}</span> {title}
+      </h2>
+      <p className="text-sm text-gray-400 mt-1">{subtitle}</p>
+    </div>
+  );
+}
+

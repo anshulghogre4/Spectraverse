@@ -1,37 +1,26 @@
 'use client';
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { useEffect, useRef, useState } from 'react';
-import type { GenerationResult } from '../lib/api';
+import { useRef } from 'react';
+import type { GenerationResult, FoundryGenerationResult } from '../lib/api';
+import { useAudioAnalyser } from '../hooks/useAudioAnalyser';
+import LiveSpectrogram from './LiveSpectrogram';
+import StatusPill from './StatusPill';
 
 type Props = {
-  result: GenerationResult;
+  result: GenerationResult | FoundryGenerationResult;
   onReset: () => void;
 };
 
 export default function AudioOutputPanel({ result, onReset }: Props) {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const [playing, setPlaying] = useState(false);
-  const [audioSrc, setAudioSrc] = useState('');
+  const { analyserRef, isActive } = useAudioAnalyser(audioRef);
 
-  // Build data URI once — useState so the audio element src attribute actually updates
-  useEffect(() => {
-    if (result.audio_b64) {
-      setAudioSrc(`data:audio/wav;base64,${result.audio_b64}`);
-    }
-  }, [result.audio_b64]);
-
-  const togglePlay = () => {
-    const el = audioRef.current;
-    if (!el) return;
-    if (playing) {
-      el.pause();
-    } else {
-      el.play().catch(() => {});
-    }
-  };
-
+  const audioSrc = result.audio_b64 ? `data:audio/wav;base64,${result.audio_b64}` : '';
   const caption = buildCaption(result);
+
+  const foundry = result as FoundryGenerationResult;
+  const pillMode = foundry.is_fully_live ? 'live' : foundry.is_mock ? 'mock' : 'heuristic';
 
   return (
     <AnimatePresence>
@@ -52,6 +41,9 @@ export default function AudioOutputPanel({ result, onReset }: Props) {
               <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
                 {result.style}
               </span>
+            )}
+            {'is_fully_live' in result && (
+              <StatusPill mode={pillMode} provider={foundry.provider} />
             )}
           </div>
           <button
@@ -84,28 +76,11 @@ export default function AudioOutputPanel({ result, onReset }: Props) {
               <audio
                 ref={audioRef}
                 src={audioSrc}
-                onPlay={() => setPlaying(true)}
-                onPause={() => setPlaying(false)}
-                onEnded={() => setPlaying(false)}
-                className="hidden"
-              />
-              <button
-                onClick={togglePlay}
-                className="w-full py-3 rounded-xl font-semibold flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white transition"
-              >
-                {playing ? (
-                  <><PauseIcon /> Pause</>
-                ) : (
-                  <><PlayIcon /> Play Generated Audio</>
-                )}
-              </button>
-              {/* Native controls as fallback */}
-              <audio
-                src={audioSrc}
                 controls
-                className="w-full h-8 opacity-60 hover:opacity-100 transition"
-                style={{ filter: 'invert(1) hue-rotate(180deg)' }}
+                className="w-full h-10 rounded-lg"
               />
+              {/* Live scrolling spectrogram */}
+              <LiveSpectrogram analyserRef={analyserRef} isActive={isActive} height={120} />
             </div>
           ) : (
             <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-3 text-sm text-red-400">
@@ -155,20 +130,4 @@ function buildCaption(result: GenerationResult): string {
   if (p.reverb) parts.push(`reverb ${Number(p.reverb).toFixed(1)}`);
   if (result.style) parts.push(`[${result.style} style]`);
   return parts.length > 0 ? parts.join(' · ') : 'Audio synthesised from image analysis.';
-}
-
-function PlayIcon() {
-  return (
-    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-      <path d="M8 5v14l11-7z" />
-    </svg>
-  );
-}
-
-function PauseIcon() {
-  return (
-    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-      <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-    </svg>
-  );
 }

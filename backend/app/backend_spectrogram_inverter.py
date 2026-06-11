@@ -18,6 +18,14 @@ from __future__ import annotations
 import numpy as np
 from typing import Dict, Any, Tuple
 
+# Optional neural vocoder — much better quality than Griffin-Lim when available
+try:
+    import torch
+    from vocos import Vocos as _Vocos
+    VOCOS_AVAILABLE = True
+except ImportError:
+    VOCOS_AVAILABLE = False
+
 
 # Matching librosa defaults used in most publicly shared spectrograms
 DEFAULT_SR = 22050
@@ -26,8 +34,10 @@ DEFAULT_N_FFT = 2048
 DEFAULT_HOP_LENGTH = 512
 DEFAULT_N_ITER = 64
 
-# Hard input cap to prevent OOM on huge uploads (e.g. 1920×1080 screenshots)
-MAX_INPUT_WIDTH = 1024
+# Hard input cap to prevent OOM on huge uploads (e.g. 1920×1080 screenshots).
+# Width cap is kept very large so frame-accurate resize in the endpoint is not
+# undone here.  Height cap prevents OOM in the mel filterbank step.
+MAX_INPUT_WIDTH = 8192
 MAX_INPUT_HEIGHT = 256
 
 
@@ -76,6 +86,20 @@ class SpectrogramInverter:
             hop_length=p["hop_length"], scale=p["scale"], n_iter=n_iter,
         )
 
+    def _invert_vocos(self, magnitude: np.ndarray) -> "np.ndarray | None":
+        """
+        Attempt neural vocoder inversion via Vocos.
+        Returns audio numpy array on success, None on failure (so caller can fall back).
+        """
+        try:
+            vocos = _Vocos.from_pretrained("charactr/vocos-mel-24khz")
+            mel_spec = torch.from_numpy(magnitude).unsqueeze(0).float()
+            with torch.no_grad():
+                waveform = vocos.decode(mel_spec)
+            return waveform.squeeze().cpu().numpy()
+        except Exception:
+            return None
+
     def invert(self, magnitude: np.ndarray) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Args:
@@ -92,32 +116,42 @@ class SpectrogramInverter:
         mag = self._cap_input_size(magnitude)
         mag = self._resize_to_mels(mag)
 
-        if self.scale == "linear" or self.scale == "log_linear":
-            # Treat rows as linear STFT bins directly (skip mel filterbank)
-            # Resize rows to (1 + n_fft//2) so it matches librosa.griffinlim's expected shape
-            expected_bins = 1 + self.n_fft // 2
-            mag_stft = self._resize_rows(mag, expected_bins)
-            audio = librosa.griffinlim(
-                mag_stft,
-                n_iter=self.n_iter,
-                hop_length=self.hop_length,
-                win_length=self.n_fft,
-                window="hann",
-                center=True,
-            )
-        else:
-            # Mel inversion (standard librosa path)
-            audio = librosa.feature.inverse.mel_to_audio(
-                mag,
-                sr=self.sr,
-                n_fft=self.n_fft,
-                hop_length=self.hop_length,
-                win_length=self.n_fft,
-                window="hann",
-                center=True,
-                power=1.0,
-                n_iter=self.n_iter,
-            )
+        # Try Vocos neural vocoder first (much better quality than Griffin-Lim)
+        reconstruction_method = "griffin_lim"
+        audio = None
+        if VOCOS_AVAILABLE:
+            audio = self._invert_vocos(mag)
+            if audio is not None:
+                reconstruction_method = "vocos"
+
+        # Fall back to Griffin-Lim if Vocos is unavailable or failed
+        if audio is None:
+            if self.scale == "linear" or self.scale == "log_linear":
+                # Treat rows as linear STFT bins directly (skip mel filterbank)
+                # Resize rows to (1 + n_fft//2) so it matches librosa.griffinlim's expected shape
+                expected_bins = 1 + self.n_fft // 2
+                mag_stft = self._resize_rows(mag, expected_bins)
+                audio = librosa.griffinlim(
+                    mag_stft,
+                    n_iter=self.n_iter,
+                    hop_length=self.hop_length,
+                    win_length=self.n_fft,
+                    window="hann",
+                    center=True,
+                )
+            else:
+                # Mel inversion (standard librosa path)
+                audio = librosa.feature.inverse.mel_to_audio(
+                    mag,
+                    sr=self.sr,
+                    n_fft=self.n_fft,
+                    hop_length=self.hop_length,
+                    win_length=self.n_fft,
+                    window="hann",
+                    center=True,
+                    power=1.0,
+                    n_iter=self.n_iter,
+                )
 
         audio = audio.astype(np.float32)
         audio = self._fade(audio, fade_samples=int(self.sr * 0.005))
@@ -130,7 +164,8 @@ class SpectrogramInverter:
         rms = float(np.sqrt(np.mean(audio ** 2)))
 
         meta = {
-            "reconstruction_method": "griffin_lim",
+            "reconstruction_method": reconstruction_method,
+            "vocoder": "vocos" if VOCOS_AVAILABLE else "griffin_lim",
             "scale": self.scale,
             "n_iter": self.n_iter,
             "sr": self.sr,

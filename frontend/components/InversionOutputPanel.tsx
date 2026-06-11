@@ -1,31 +1,24 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { InversionResult } from '../lib/api';
+import { useAudioAnalyser } from '../hooks/useAudioAnalyser';
+import LiveSpectrogram from './LiveSpectrogram';
+import StatusPill from './StatusPill';
 
 type Props = {
   originalImageSrc: string;
   result: InversionResult;
   onReset: () => void;
+  showAIReasoning?: boolean;
 };
 
-export default function InversionOutputPanel({ originalImageSrc, result, onReset }: Props) {
-  const [audioSrc, setAudioSrc] = useState('');
-  const [playing, setPlaying] = useState(false);
+export default function InversionOutputPanel({ originalImageSrc, result, onReset, showAIReasoning }: Props) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const { analyserRef, isActive } = useAudioAnalyser(audioRef);
 
-  useEffect(() => {
-    if (result.audio_b64) {
-      setAudioSrc(`data:audio/wav;base64,${result.audio_b64}`);
-    }
-  }, [result.audio_b64]);
-
-  const togglePlay = () => {
-    const el = audioRef.current;
-    if (!el) return;
-    playing ? el.pause() : el.play().catch(() => {});
-  };
+  const audioSrc = result.audio_b64 ? `data:audio/wav;base64,${result.audio_b64}` : '';
 
   const confidenceColor =
     result.confidence >= 0.8 ? 'text-green-400 border-green-500/40' :
@@ -55,6 +48,7 @@ export default function InversionOutputPanel({ originalImageSrc, result, onReset
             <span className="text-xs text-gray-600">
               Griffin-Lim {result.n_iter_used} iter · {result.colormap_used}
             </span>
+            <StatusPill mode={result.ai_mode_used ? 'live' : 'heuristic'} />
           </div>
           <button onClick={onReset} className="text-xs text-gray-500 hover:text-gray-300 transition ml-2 flex-shrink-0">
             Try another
@@ -94,26 +88,13 @@ export default function InversionOutputPanel({ originalImageSrc, result, onReset
               <audio
                 ref={audioRef}
                 src={audioSrc}
-                onPlay={() => setPlaying(true)}
-                onPause={() => setPlaying(false)}
-                onEnded={() => setPlaying(false)}
-                className="hidden"
-              />
-              <button
-                onClick={togglePlay}
-                className="w-full py-3 rounded-xl font-semibold flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-500 text-white transition"
-              >
-                {playing ? (
-                  <><PauseIcon /> Pause Playback</>
-                ) : (
-                  <><PlayIcon /> Play Reconstructed Audio</>
-                )}
-              </button>
-              <audio
-                src={audioSrc}
                 controls
-                className="w-full h-8 opacity-60 hover:opacity-100 transition"
-                style={{ filter: 'invert(1) hue-rotate(180deg)' }}
+                className="w-full h-10 rounded-lg"
+              />
+              <LiveSpectrogram
+                analyserRef={analyserRef}
+                isActive={isActive}
+                height={100}
               />
               <p className="text-xs text-gray-500 text-center">
                 Duration: {result.duration.toFixed(1)}s · {result.sample_rate} Hz ·{' '}
@@ -126,14 +107,34 @@ export default function InversionOutputPanel({ originalImageSrc, result, onReset
             </div>
           )}
         </div>
+
+        {/* AI Vision reasoning */}
+        {result.ai_mode_used && result.vision_reasoning && (
+          <div className="px-5 pb-4">
+            <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl px-4 py-3 space-y-1">
+              <p className="text-xs font-semibold text-emerald-400 uppercase tracking-widest mb-2">
+                🧠 AI Vision Reasoning
+              </p>
+              {!!result.vision_reasoning['description'] && (
+                <p className="text-xs text-gray-300">{String(result.vision_reasoning['description'])}</p>
+              )}
+              {!!result.vision_reasoning['is_mock'] && (
+                <p className="text-xs text-amber-400 italic">Mock reasoning — no vision LLM configured</p>
+              )}
+              <div className="flex flex-wrap gap-2 mt-2">
+                {(['colormap', 'scale', 'source_tool'] as const).map((k) => {
+                  const val = result.vision_reasoning![k as keyof typeof result.vision_reasoning];
+                  return val ? (
+                    <span key={k} className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
+                      {k}: {String(val)}
+                    </span>
+                  ) : null;
+                })}
+              </div>
+            </div>
+          </div>
+        )}
       </motion.div>
     </AnimatePresence>
   );
-}
-
-function PlayIcon() {
-  return <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>;
-}
-function PauseIcon() {
-  return <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>;
 }

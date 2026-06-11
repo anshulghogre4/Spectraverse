@@ -42,3 +42,7 @@ yarn-error.log*
 .claude/settings.local.json
 # .claude/settings.json   ← keep this if you want shared project permissions
 # .claude/CLAUDE.md        ← keep this if you have project-level instructions
+
+# Build artifacts
+*.tsbuildinfo
+test_spectrogram.png

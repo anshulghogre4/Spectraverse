@@ -6,9 +6,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 type Stage = { label: string; duration: number };
 
 const IMAGE_STAGES: Stage[] = [
-  { label: 'Analysing image', duration: 800 },
-  { label: 'Mapping to sound', duration: 1200 },
-  { label: 'Synthesising audio', duration: 2500 },
+  { label: 'Analysing image', duration: 3000 },
+  { label: 'Mapping to sound', duration: 8000 },
+  { label: 'Synthesising audio', duration: 6000 },
   { label: 'Finalising', duration: 400 },
 ];
 
