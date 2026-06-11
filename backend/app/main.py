@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 import asyncio
 import io
 import base64
+from dataclasses import asdict
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import os
@@ -638,6 +639,33 @@ async def generate_audio_to_visual(
         "style": style,
     })
 
+def _describe_audio_features_heuristic(af: dict) -> str:
+    """Build a rich human-readable description of audio features for the reasoning panel."""
+    bpm = af.get("bpm", 90)
+    genre = af.get("genre", "unknown")
+    vibe = af.get("vibe", "")
+    bass = float(af.get("bass_energy", 0))
+    treble = float(af.get("treble_energy", 0))
+    complexity = float(af.get("complexity", 0.5))
+    pitch = af.get("pitch") or {}
+    note = pitch.get("note", "") if isinstance(pitch, dict) else ""
+    hz = pitch.get("hz", 0) if isinstance(pitch, dict) else 0
+    centroid = float(af.get("spectral_centroid", 0))
+
+    tempo_feel = "slow" if bpm < 70 else "moderate" if bpm < 110 else "fast" if bpm < 145 else "driving"
+    bass_desc = "heavy bass" if bass > 0.6 else "moderate bass" if bass > 0.3 else "light bass"
+    treble_desc = "bright highs" if treble > 0.5 else "warm mids" if treble > 0.25 else "dark/muffled tone"
+    complexity_desc = "complex, layered" if complexity > 0.65 else "moderately textured" if complexity > 0.35 else "sparse, minimal"
+    note_desc = f", dominant pitch {note} ({int(hz)} Hz)" if note and hz else ""
+    centroid_desc = f", spectral centroid {int(centroid)} Hz" if centroid > 0 else ""
+
+    return (
+        f"{genre.title()} track with a {vibe} mood — {tempo_feel} at {bpm} BPM. "
+        f"{bass_desc.capitalize()}, {treble_desc}, {complexity_desc} arrangement"
+        f"{note_desc}{centroid_desc}."
+    )
+
+
 # ── Generate: Audio → Visual with Foundry IQ ──────────────────────────────
 
 @app.post("/api/generate/audio-to-visual-foundry")
@@ -671,6 +699,11 @@ async def generate_audio_to_visual_foundry(
     else:
         audio_features = {}
 
+    # Step 1b: LLM audio description (parallel with visual grounding)
+    audio_desc, audio_desc_step = await loop.run_in_executor(
+        None, lambda: _foundry_agent.describe_audio(audio_features)
+    )
+
     # Step 2: Foundry IQ visual grounding
     foundry_result = await loop.run_in_executor(
         None, lambda: _foundry_agent.audio_to_visual(audio_features, style)
@@ -697,9 +730,9 @@ async def generate_audio_to_visual_foundry(
         "style": style,
         "mode": render_mode,
         "audio_features": audio_features,
-        "image_description": f"Audio: {audio_features.get('genre','unknown')} {audio_features.get('vibe','')} at {audio_features.get('bpm', 90)} BPM",
+        "image_description": audio_desc,
         "citations": foundry_result.get("citations", []),
-        "reasoning_steps": foundry_result.get("reasoning_steps", []),
+        "reasoning_steps": [asdict(audio_desc_step)] + foundry_result.get("reasoning_steps", []),
         "provider": foundry_result.get("provider", "mock"),
         "is_mock": foundry_result.get("is_mock", True),
         "is_fully_live": not foundry_result.get("is_mock", True),

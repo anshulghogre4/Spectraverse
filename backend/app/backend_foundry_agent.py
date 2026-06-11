@@ -186,6 +186,33 @@ STYLE_MAP: Dict[str, Dict[str, Any]] = {
 }
 
 
+def _describe_audio_features_heuristic(af: Dict[str, Any]) -> str:
+    """Rule-based audio description — used when no LLM is available."""
+    bpm = af.get("bpm", 90)
+    genre = af.get("genre", "unknown")
+    vibe = af.get("vibe", "")
+    bass = float(af.get("bass_energy", 0))
+    treble = float(af.get("treble_energy", 0))
+    complexity = float(af.get("complexity", 0.5))
+    pitch = af.get("pitch") or {}
+    note = pitch.get("note", "") if isinstance(pitch, dict) else ""
+    hz = pitch.get("hz", 0) if isinstance(pitch, dict) else 0
+    centroid = float(af.get("spectral_centroid", 0))
+
+    tempo_feel = "slow" if bpm < 70 else "moderate" if bpm < 110 else "fast" if bpm < 145 else "driving"
+    bass_desc = "heavy bass" if bass > 0.6 else "moderate bass" if bass > 0.3 else "light bass"
+    treble_desc = "bright highs" if treble > 0.5 else "warm mids" if treble > 0.25 else "dark/muffled tone"
+    complexity_desc = "complex, layered" if complexity > 0.65 else "moderately textured" if complexity > 0.35 else "sparse, minimal"
+    note_desc = f", dominant pitch {note} ({int(hz)} Hz)" if note and hz else ""
+    centroid_desc = f", spectral centroid {int(centroid)} Hz" if centroid > 0 else ""
+
+    return (
+        f"{genre.title()} track with a {vibe} mood — {tempo_feel} at {bpm} BPM. "
+        f"{bass_desc.capitalize()}, {treble_desc}, {complexity_desc} arrangement"
+        f"{note_desc}{centroid_desc}."
+    )
+
+
 def _heuristic_visual_from_audio(
     audio_features: Dict[str, Any], style: str = ""
 ) -> tuple:
@@ -677,6 +704,89 @@ class FoundryAgent:
         return params, ReasoningStep(
             stage="mapping",
             description=f"All providers failed ({', '.join(attempts)}); used heuristic → {params.get('key_name')}",
+            is_mock=True,
+        )
+
+    # ── Stage 1b: Audio description ─────────────────────────────────────
+
+    def describe_audio(self, audio_features: Dict[str, Any]) -> tuple[str, ReasoningStep]:
+        """
+        Ask the LLM to write a rich musical description from extracted audio features.
+        Falls back to the heuristic string when no LLM is available.
+        Returns (description, reasoning_step).
+        """
+        pitch = audio_features.get("pitch") or {}
+        note = pitch.get("note", "") if isinstance(pitch, dict) else ""
+        hz = pitch.get("hz", 0) if isinstance(pitch, dict) else 0
+
+        features_block = (
+            f"BPM: {audio_features.get('bpm', 90)}\n"
+            f"Genre: {audio_features.get('genre', 'unknown')}\n"
+            f"Vibe: {audio_features.get('vibe', 'unknown')}\n"
+            f"Bass energy: {round(float(audio_features.get('bass_energy', 0)), 3)}\n"
+            f"Treble energy: {round(float(audio_features.get('treble_energy', 0)), 3)}\n"
+            f"Complexity: {round(float(audio_features.get('complexity', 0.5)), 3)}\n"
+            f"Spectral centroid: {int(float(audio_features.get('spectral_centroid', 0)))} Hz\n"
+            + (f"Dominant pitch: {note} ({int(hz)} Hz)\n" if note and hz else "")
+        )
+
+        if not self.vision_live:
+            desc = _describe_audio_features_heuristic(audio_features)
+            return desc, ReasoningStep(
+                stage="vision",
+                description=f"Heuristic audio description (no LLM): {desc[:120]}",
+                is_mock=True,
+            )
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a music journalist describing a piece of audio to an artist "
+                    "who will create visuals for it. Given extracted audio features, write "
+                    "2-3 vivid sentences covering: the emotional mood and energy, the sonic "
+                    "texture (bass heaviness, brightness, complexity), the tempo feel, and "
+                    "any implied genre or scene. Be evocative and specific — avoid generic phrases."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Describe this audio for visual composition:\n\n{features_block}",
+            },
+        ]
+
+        attempts: List[str] = []
+        for provider in self._provider_chain:
+            try:
+                client = self._get_llm_client(provider)
+                response = client.chat.completions.create(
+                    model=self._mapping_model_id(provider),
+                    messages=messages,
+                    max_tokens=180,
+                    temperature=0.7,
+                )
+                description = response.choices[0].message.content or ""
+                tokens = response.usage.total_tokens if response.usage else 0
+                attempts.append(provider)
+                attempt_note = (
+                    f" (after {', '.join(a + ' failed' for a in attempts[:-1])})"
+                    if len(attempts) > 1 else ""
+                )
+                return description, ReasoningStep(
+                    stage="vision",
+                    description=f"[{provider}/{self._mapping_model_id(provider)}{attempt_note}] {description[:120]}",
+                    tokens_used=tokens,
+                    is_mock=False,
+                )
+            except Exception as e:
+                logger.warning("describe_audio: %s failed (%s) — trying next", provider, e)
+                attempts.append(provider)
+                continue
+
+        desc = _describe_audio_features_heuristic(audio_features)
+        return desc, ReasoningStep(
+            stage="vision",
+            description=f"All providers failed ({', '.join(attempts)}); using heuristic",
             is_mock=True,
         )
 

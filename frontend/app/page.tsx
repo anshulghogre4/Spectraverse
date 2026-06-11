@@ -9,8 +9,8 @@ type Tab = "image" | "audio" | "spectrogram";
 
 const TABS: { id: Tab; icon: string; label: string }[] = [
   { id: "spectrogram", icon: "🔬", label: "Spectrogram Lab" },
-  { id: "image",       icon: "🎨", label: "Image → Audio" },
   { id: "audio",       icon: "🎵", label: "Audio → Visual" },
+  { id: "image",       icon: "🎨", label: "Image → Audio" },
 ];
 
 export default function Home() {
