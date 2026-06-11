@@ -60,13 +60,12 @@ class SpectrogramDetector:
         # ── Score 5: edge density — spectrograms have horizontal edges ────
         scores["edges"] = self._horizontal_edge_score(img)
 
-        # Weighted combination (tuned against visual inspection)
         weights = {
-            "banding":    0.35,
-            "colormap":   0.25,
+            "banding":    0.30,
+            "colormap":   0.30,
             "aspect":     0.15,
-            "saturation": 0.10,
-            "edges":      0.15,
+            "saturation": 0.05,
+            "edges":      0.20,
         }
         confidence = sum(scores[k] * weights[k] for k in weights)
         confidence = float(np.clip(confidence, 0.0, 1.0))
@@ -92,12 +91,15 @@ class SpectrogramDetector:
 
     def _horizontal_banding_score(self, img: np.ndarray) -> float:
         """High score = adjacent rows are highly correlated (spectrogram-like)."""
-        gray = img.mean(axis=2)
-        row_means = gray.mean(axis=1)  # (H,)
+        H, W = img.shape[:2]
+        # Focus on centre region to avoid axis labels / titles
+        y0, y1 = int(H * 0.15), int(H * 0.85)
+        x0, x1 = int(W * 0.15), int(W * 0.85)
+        gray = img[y0:y1, x0:x1].mean(axis=2)
+        row_means = gray.mean(axis=1)
         if len(row_means) < 4:
             return 0.0
         diffs = np.abs(np.diff(row_means))
-        # Smoothness: low inter-row variance relative to total variance
         smoothness = 1.0 - float(np.clip(diffs.std() / (row_means.std() + 1e-6), 0, 1))
         return float(np.clip(smoothness, 0, 1))
 
@@ -109,11 +111,15 @@ class SpectrogramDetector:
         except ImportError:
             return 0.5, "viridis"
 
-        # Sample pixels — full image is too slow; use 1000 random pixels
         H, W, _ = img.shape
+        # Sample from the centre 60% of the image to avoid axis labels,
+        # titles, and colorbars that appear in spectrogram screenshots.
+        y0, y1 = int(H * 0.2), int(H * 0.8)
+        x0, x1 = int(W * 0.15), int(W * 0.85)
+        centre = img[y0:y1, x0:x1]
         rng = np.random.default_rng(42)
-        flat = img.reshape(-1, 3).astype(np.float32)
-        idx = rng.choice(len(flat), min(1000, len(flat)), replace=False)
+        flat = centre.reshape(-1, 3).astype(np.float32)
+        idx = rng.choice(len(flat), min(1500, len(flat)), replace=False)
         sampled = flat[idx]
 
         best_score = 0.0
@@ -125,9 +131,12 @@ class SpectrogramDetector:
             lut_rgb = cmap(np.linspace(0, 1, n))[:, :3].astype(np.float32)
             tree = cKDTree(lut_rgb)
             dists, _ = tree.query(sampled, k=1)
-            # Low mean distance = colours match this colormap
             mean_dist = float(dists.mean())
-            score = float(np.clip(1.0 - mean_dist * 5.0, 0, 1))
+            # Use median distance (more robust to chrome outliers) blended
+            # with mean.  Softer multiplier tolerates screenshot chrome.
+            med_dist = float(np.median(dists))
+            blended = 0.6 * med_dist + 0.4 * mean_dist
+            score = float(np.clip(1.0 - blended * 3.5, 0, 1))
             if score > best_score:
                 best_score = score
                 best_cmap = cmap_name
@@ -135,17 +144,19 @@ class SpectrogramDetector:
         return best_score, best_cmap
 
     def _saturation_score(self, img: np.ndarray) -> float:
-        """Spectrograms use sequential colormaps — low saturation variance."""
+        """Spectrograms use sequential colormaps — structured saturation pattern."""
         r, g, b = img[:, :, 0], img[:, :, 1], img[:, :, 2]
         cmax = np.maximum(np.maximum(r, g), b)
         cmin = np.minimum(np.minimum(r, g), b)
         saturation = (cmax - cmin) / (cmax + 1e-6)
-        # Spectrograms: low mean saturation, low variance
         mean_sat = float(saturation.mean())
-        # Viridis goes from ~0 to ~0.8 saturation — moderate mean expected
-        # Natural photos have high variance saturation
-        variance_penalty = float(np.clip(saturation.std() * 2, 0, 1))
-        return float(np.clip(1.0 - variance_penalty + mean_sat * 0.3, 0, 1))
+        std_sat = float(saturation.std())
+        # Screenshots have chrome (axis labels, colorbars) that creates high
+        # saturation variance.  Natural photos have BOTH high mean AND high
+        # variance.  Spectrograms: moderate mean, any variance.
+        # Penalize only when both mean and variance are high (natural photo).
+        photo_score = mean_sat * std_sat  # high only for natural photos
+        return float(np.clip(1.0 - photo_score * 2.5, 0, 1))
 
     def _horizontal_edge_score(self, img: np.ndarray) -> float:
         """Spectrograms have predominantly horizontal edges (frequency bands)."""

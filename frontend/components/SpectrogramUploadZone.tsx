@@ -70,7 +70,7 @@ function InvertTab() {
   });
 
   const [phase, setPhase] = useState<Phase>('idle');
-  const [detection, setDetection] = useState<{ confidence: number; colormap_guess: string; type: string } | null>(null);
+  const [detection, setDetection] = useState<{ confidence: number; colormap_guess: string; type: string; method: string } | null>(null);
   const [colormap, setColormap] = useState('viridis');
   const [preset, setPreset] = useState('librosa_mel');
   const [nIter, setNIter] = useState(64);
@@ -95,7 +95,7 @@ function InvertTab() {
     setError(null);
     try {
       const res = await detectSpectrogram(upload.file);
-      setDetection({ confidence: res.confidence, colormap_guess: res.colormap_guess, type: res.type });
+      setDetection({ confidence: res.confidence, colormap_guess: res.colormap_guess, type: res.type, method: res.method || 'heuristic' });
       if (res.colormap_guess && COLORMAP_OPTIONS.includes(res.colormap_guess)) {
         setColormap(res.colormap_guess);
       }
@@ -184,7 +184,7 @@ function InvertTab() {
               <span className="text-xs text-gray-500">
                 {(detection.confidence * 100).toFixed(0)}% confidence · {detection.type} · guess: {detection.colormap_guess}
               </span>
-              <StatusPill mode={detection.colormap_guess ? 'heuristic' : 'mock'} />
+              <StatusPill mode={useAI ? 'live' : 'heuristic'} provider={useAI ? 'Foundry IQ' : undefined} />
             </div>
 
             <div>
@@ -576,7 +576,7 @@ function LosslessAudioPlayer({ result }: { result: InversionResult }) {
             Show reconstruction comparison
           </summary>
           <img
-            src={`data:image/png;base64,${result.comparison_spectrogram}`}
+            src={result.comparison_spectrogram}
             alt="Reconstruction comparison"
             className="w-full mt-2 rounded-lg border border-gray-700/50"
           />

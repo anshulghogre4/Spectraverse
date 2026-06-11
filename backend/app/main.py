@@ -838,6 +838,20 @@ async def get_mappings(section: str = ""):
         raise HTTPException(status_code=404, detail=f"Section '{section}' not found")
     return SEMANTIC_MAPPINGS
 
+# ── Knowledge Base proxy (serves docs so citations aren't blocked by private blob) ──
+
+KB_DIR = Path(__file__).resolve().parent.parent / "knowledge_base"
+
+@app.get("/api/knowledge-base/{category}/{filename}")
+async def get_knowledge_doc(category: str, filename: str):
+    safe_cat = Path(category).name
+    safe_file = Path(filename).name
+    filepath = KB_DIR / safe_cat / safe_file
+    if not filepath.exists() or not filepath.is_file():
+        raise HTTPException(status_code=404, detail="Document not found")
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(filepath.read_text(encoding="utf-8"))
+
 # ── Spectrogram inversion (Sprint 3) ──────────────────────────────────────────
 
 @app.post("/api/detect-spectrogram")

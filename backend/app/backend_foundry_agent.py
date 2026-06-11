@@ -1004,29 +1004,31 @@ class FoundryAgent:
         }
 
     def _clean_doc_key(self, raw: str) -> tuple[str, str]:
-        """Returns (clean_title, source_url). Strips blob URL → readable filename."""
+        """Returns (clean_title, proxy_url). Rewrites private blob URLs to local proxy."""
         if not raw:
             return ("unknown source", "")
         s = str(raw)
-        # Detect URL-like
+        import re
         if s.startswith("http://") or s.startswith("https://") or "blob.core.windows.net" in s:
-            url = s
-            # Extract basename
-            basename = s.rsplit("/", 1)[-1]
-            # Strip query string
-            basename = basename.split("?", 1)[0]
-            # Strip .md / .txt
+            # Extract path segments: .../knowledge-base/category/filename.md
+            basename = s.rsplit("/", 1)[-1].split("?", 1)[0]
+            # Try to extract category from the path (e.g., cross_modal, spectrogram_tools)
+            parts = s.split("?", 1)[0].rsplit("/", 2)
+            if len(parts) >= 3:
+                category = parts[-2]
+                filename = parts[-1]
+                proxy_url = f"/api/knowledge-base/{category}/{filename}"
+            else:
+                proxy_url = ""
+            # Clean basename for display
+            display = basename
             for ext in (".md", ".txt", ".markdown"):
-                if basename.lower().endswith(ext):
-                    basename = basename[: -len(ext)]
+                if display.lower().endswith(ext):
+                    display = display[: -len(ext)]
                     break
-            # Strip leading "NN_" or "NN-" numbering
-            import re
-            basename = re.sub(r"^\d+[_\-]\s*", "", basename)
-            # Replace separators with spaces
-            basename = basename.replace("_", " ").replace("-", " ")
-            # Title case
-            return (basename.strip().title() or "Indexed document", url)
+            display = re.sub(r"^\d+[_\-]\s*", "", display)
+            display = display.replace("_", " ").replace("-", " ")
+            return (display.strip().title() or "Indexed document", proxy_url)
         return (s, "")
 
     def _parse_citations(self, result: Any) -> List[Citation]:

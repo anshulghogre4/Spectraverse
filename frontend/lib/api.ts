@@ -1,4 +1,4 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
 export type ImageFeatures = {
   brightness: number;
@@ -238,6 +238,7 @@ export type DetectionResult = {
   type: string;
   colormap_guess: string;
   reason: string;
+  method?: string;
 };
 
 export async function detectSpectrogram(file: File): Promise<DetectionResult> {

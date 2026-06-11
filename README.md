@@ -1,386 +1,341 @@
-# 🎉 SpectraVerse Build Session — COMPLETE
+<p align="center">
+  <img src="docs/assets/spectraverse-banner.png" alt="SpectraVerse Banner" width="800" />
+</p>
 
-**Latest Session**: 2026-05-29 03:37 → Now UTC  
-**Total Duration**: 45+ minutes  
-**Status**: ✅ **PRODUCTION READY** | 📁 **FOLDER ORG GUIDES CREATED**
+<h1 align="center">SpectraVerse</h1>
 
----
+<p align="center">
+  <strong>See Sound. Hear Images. Decode Spectrograms.</strong><br/>
+  A multimodal AI agent that transforms between sight and sound — with cited reasoning.
+</p>
 
-## 📦 Delivery Summary
-
-### Files Delivered: 25 Components + 6 New Organization Guides
-
-```
-Documentation:  11 files (guides, status reports)
-Frontend:        4 files (React/Next.js)
-Backend:        10 files (Python services)
-Infrastructure:  2 files (Docker)
-Config:          2 files (requirements, package.json)
-Organization:    6 files ✨ NEW (guides, scripts)
-```
-
-### Code Delivered: 4600+ Lines
-
-```
-Backend services:  2000+ LOC (vision, mapper, synthesis, pipeline)
-Frontend:           500+ LOC (components, UI)
-Infrastructure:     300+ LOC (Docker, config)
-Documentation:     1800+ LOC (guides, setup, roadmap)
-```
-
-### Database: 28 Changelog Entries Tracked
-
-```
-6 unique sprints logged
-21 unique components documented
-100% of todos tracked (10/10 completed in Sprint 1-3)
-```
+<p align="center">
+  <a href="#demo">Demo</a> •
+  <a href="#features">Features</a> •
+  <a href="#how-it-works">How It Works</a> •
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#tech-stack">Tech Stack</a> •
+  <a href="#api-reference">API</a>
+</p>
 
 ---
 
-## 🎯 Sprints Completed
+## Demo
 
-| Sprint    | Goal                   | Status | Files  | LOC       |
-| --------- | ---------------------- | ------ | ------ | --------- |
-| 1         | Infrastructure & Setup | ✅     | 5      | 500       |
-| 2         | Local DSP & WebAudio   | ✅     | 10     | 2500      |
-| 3         | Image→Audio Pipeline   | ✅     | 10     | 1600      |
-| **Total** | **43% Complete**       | **✅** | **25** | **4600+** |
+| Image → Audio | Audio → Visual | Spectrogram ↔ Audio |
+|:---:|:---:|:---:|
+| Upload any image. AI analyzes colors, mood & composition, then composes original music. | Upload audio. Watch one of 50 beat-synced generative visualizations come alive. | Convert audio to spectrograms, or invert spectrogram images back to playable audio. |
 
----
-
-## 🚀 What's Operational Right Now
-
-### Image→Audio Pipeline (100% Working)
-
-```
-Image Upload → Vision Analysis → Semantic Mapping → DSP Synthesis
-→ Safety Checks → Cache → Spectrogram → Audio Output
-```
-
-**Features**:
-
-- ✅ 8 semantic image features extracted
-- ✅ 50+ deterministic mapping rules
-- ✅ 7 creative style modifiers
-- ✅ DSP synthesis with harmonics & reverb
-- ✅ Safety checks (clipping, filtering, loudness)
-- ✅ Redis caching (7-day TTL)
-- ✅ Fallback generation (always works)
-- ✅ Spectrogram rendering
-
-### API Ready
-
-```
-POST /api/generate/image-to-audio
-Returns: {audio_array, spectrogram, image_features, audio_params, job_id}
-Status: ✅ WORKING
-```
-
-### Frontend UI Ready
-
-```
-Upload zones ✅ | Mode selector ✅ | Style options ✅ | Real-time viz ✅
-```
+> Every transformation includes **Foundry IQ citations** — the AI explains *why* it made each creative decision, grounded in music theory, colour psychology, and cross-modal research.
 
 ---
 
-## 💡 Architecture Highlights
+## Features
 
-### Semantic-First Design
+**Three Modality Bridges**
 
-Every transformation is **explainable**:
+- **Image → Audio** — Upload a photo, get original music. A sunset becomes a warm minor-key piano piece. A cityscape becomes driving synth with brass hits. 17 instruments, 20+ chord progressions, 8 rhythm patterns.
+- **Audio → Visual** — Upload a track, get a living canvas. 50 unique renderers (particle storms, aurora, terrain, kaleidoscope, laser shows...) all driven by real-time FFT analysis — bass energy, onset detection, BPM sync.
+- **Spectrogram ↔ Audio** — Two-way spectrogram bridge. Generate spectrograms from audio, or reconstruct audio from spectrogram images using Griffin-Lim inversion with presets for Librosa, Chrome Music Lab, and Wikipedia formats.
+
+**AI Agent with Cited Reasoning**
+
+Every response from the Foundry IQ agent includes citations from a curated knowledge base (Azure AI Search). Not just "here's music" — but *"I chose D minor because warm colour temperatures map to minor keys per Scriabin's clavier à lumières [1], and the low edge density suggests a slow 72 BPM [2]."*
+
+**Real Audio Synthesis, Not Samples**
+
+The DSP engine generates audio from scratch — real waveforms with chord progressions, humanized timing (±5ms), micro-detuning (±5 cents), velocity variation, and drum patterns. Every generation sounds different.
+
+---
+
+## How It Works
 
 ```
-Image Brightness 0.75 → Pitch 330 Hz (warm, energetic)
-Color Temperature "warm" → Instruments: ["pad", "organ", "cello"]
-Texture "smooth" → Reverb: 0.8 (spacious)
+┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐     ┌──────────────┐
+│  Upload      │────▸│  Foundry IQ      │────▸│  DSP Synthesizer│────▸│  Audio/Visual│
+│  Image/Audio │     │  Agent           │     │  or Visual      │     │  Output      │
+│              │     │                  │     │  Renderer       │     │              │
+│              │     │  • Multi-LLM     │     │                 │     │  • WAV audio │
+│              │     │    chain         │     │  • 17 instruments│    │  • 50 visual │
+│              │     │  • Azure AI      │     │  • 20+ chords   │     │    modes     │
+│              │     │    Search KB     │     │  • 8 rhythms    │     │  • Citations │
+│              │     │  • Cited output  │     │  • Humanized    │     │              │
+└─────────────┘     └──────────────────┘     └─────────────────┘     └──────────────┘
 ```
 
-### DSP-First Implementation
+### The Foundry IQ Agent
 
-**90% of use cases** handled by procedural synthesis:
+A multi-provider LLM chain with automatic failover:
 
-- No GPU calls for image analysis → $0 for vision
-- No always-on inference → pay only on demand
-- Fallback always works → system never fails
+```
+Azure OpenAI → OpenAI → Gemini → Groq → Heuristic Fallback
+```
 
-### Safety by Design
+Each provider attempts the mapping. If one fails or times out, the next picks up seamlessly. The agent retrieves relevant research from Azure AI Search (colour theory, Scriabin's synesthesia mappings, cross-modal perception studies) and includes inline citations in every response.
 
-Built-in protection:
+### The DSP Engine
 
-- Audio clipping prevention (tanh limiting)
-- Frequency filtering (20Hz-20kHz)
-- Loudness normalization (-14 LUFS)
-- Visual seizure detection (ready for Sprint 4)
+No pre-recorded samples. Every note is synthesized in real-time:
 
-### Cache-Aggressive
+- **17 instruments**: piano, strings, pad, organ, cello, flute, guitar, harp, brass, marimba, synth_lead, bass, bells, choir, kalimba, sitar, steel_drum
+- **20+ chord progressions**: pop, jazz, classical, cinematic, rock — major and minor
+- **8 rhythm patterns**: standard 4/4, syncopated, shuffle, half-time, breakbeat, waltz, sparse
+- **Humanization**: stochastic detuning, velocity variation, timing jitter
 
-7-day Redis TTL means:
+### The Visual Engine
 
-- 60-80% of requests served from cache
-- 70% cost reduction
-- Sub-100ms response times
+50 Canvas 2D renderers, each driven by Web Audio API analysis:
 
----
-
-## 📋 File Inventory
-
-### Core Services
-
-1. **backend_vision_analyzer.py** — Image feature extraction
-2. **backend_semantic_mapper.py** — Deterministic transformations
-3. **backend_image_to_audio_pipeline.py** — Full pipeline orchestration
-4. **backend_audio_to_visual_pipeline.py** — Ready for Sprint 4
-5. **backend_audio_analyzer.py** — Librosa-based audio analysis
-6. **backend_dsp_synthesizer.py** — DSP audio generation
-
-### API
-
-7. **backend_main_v2.py** — FastAPI v0.2.0 (integrated)
-8. **backend_main.py** — FastAPI v0.1.0 (original)
-
-### Frontend
-
-9. **frontend_page.tsx** — Main UI
-10. **frontend_UploadZone.tsx** — Drag-drop component
-11. **frontend_SpectrogramVisualizer.tsx** — Real-time FFT viz
-
-### Configuration
-
-12. **backend_requirements.txt** — 17 Python packages
-13. **frontend_package.json** — Next.js dependencies
-14. **Dockerfile.backend** — Python 3.11 container
-15. **Dockerfile.frontend** — Node 18 container
-
-### Intelligence Core
-
-16. **semantic_mappings.json** — 50+ mapping rules
-
-### Documentation
-
-17. **SETUP.md** — Team execution guide (copy-paste ready)
-18. **COMPLETE_GUIDE.md** — Comprehensive reference
-19. **BUILD_STATUS.md** — Current project status
-20. **BUILD_MANIFEST.md** — Session artifacts
-21. **SPRINT_1_COMPLETE.md** — Sprint 1 summary
-22. **SPRINT_2_COMPLETE.md** — Sprint 2 summary
-23. **SPRINT_3_COMPLETE.md** — Sprint 3 summary
-24. **SESSION_SUMMARY.md** — Initial session notes
-
-### Utilities
-
-25. **SETUP_PROJECT.sh** — Automated folder structure
+- `analyserRef` — full FFT frequency data (waveform, spectrum bars, equalizer modes)
+- `bassRef` — low-frequency energy (drives pulsing, scaling, gravity)
+- `onsetRef` — transient detection (triggers bursts, flashes, spawns)
+- Audio-time sync — visuals track `audioEl.currentTime`, not wall clock. Pause the audio; visuals pause. Resume; they sync perfectly.
 
 ---
 
-## 🔄 Model Memory Preservation
+## Quick Start
 
-For next session, all context is **automatically preserved**:
+### Prerequisites
 
-### PROMPT_LIBRARY.md (30+ Prompts)
+- Python 3.11+
+- Node.js 18+
+- At least one LLM API key (see below)
 
-- Sprint 2-7 detailed prompts (never re-read spec)
-- Copy-paste ready for immediate productivity
-- Organized by sprint + task
+### 1. Clone & configure
 
-### CHANGELOG.md (28 Entries, Timestamped)
+```bash
+git clone https://github.com/your-org/spectraverse.git
+cd spectraverse
+```
 
-- Full build history with timestamps
-- Keeps AI model context fresh
-- Searchable by component
+Copy the example environment file and add your keys:
 
-### Database Tables
+```bash
+cp .env.example backend/.env
+```
 
-- `changelog` — 28 entries
-- `todos` — 14 todos (10 completed)
-- `todo_deps` — dependency tracking
+Open `backend/.env` and fill in your keys. The file is pre-documented — here's what each section does:
 
-### Persistent Files
+| `.env` Variable | What It's For | Required? |
+|----------------|---------------|-----------|
+| `OPENAI_API_KEY` | LLM provider #2 — GPT-4o for vision + mapping | Need at least one LLM |
+| `GEMINI_API_KEY` | LLM provider #3 — Gemini 2.5 Flash (free tier) | Need at least one LLM |
+| `GROQ_API_KEY` | LLM provider #4 — Llama 4 Maverick (free, fastest) | Need at least one LLM |
+| `AZURE_OPENAI_ENDPOINT` | LLM provider #1 — Azure OpenAI (Foundry native) | Optional |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI authentication | With endpoint |
+| `AZURE_SEARCH_ENDPOINT` | Foundry IQ knowledge base — Azure AI Search | For citations |
+| `AZURE_SEARCH_API_KEY` | Azure AI Search authentication | With endpoint |
+| `FOUNDRY_KB_NAME` | Knowledge base name in Azure AI Search | With search |
+| `FOUNDRY_KS_NAME` | Knowledge source name | With search |
 
-- All code committed to repo
-- Semantic mappings saved
-- All guides available locally
+> **Minimum to run**: Just one LLM key (e.g. `GEMINI_API_KEY` — free, no card required). The app works without Azure AI Search, but you won't get cited reasoning.
 
----
+### 2. Backend
 
-## ✅ Quality Metrics
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
 
-| Metric             | Target             | Actual      | Status |
-| ------------------ | ------------------ | ----------- | ------ |
-| **Code Coverage**  | All critical paths | 100%        | ✅     |
-| **Documentation**  | Every file         | Complete    | ✅     |
-| **Type Hints**     | Python 3.7+        | 90%+        | ✅     |
-| **Error Handling** | Fallback strategy  | Implemented | ✅     |
-| **Safety Checks**  | Audio + Visual     | Both done   | ✅     |
-| **Performance**    | <3s latency        | Achieved    | ✅     |
-| **Cost**           | <$60/mo            | $53/mo      | ✅     |
-| **Team Ready**     | SETUP.md works     | Yes         | ✅     |
+### 3. Frontend
 
----
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-## 🎓 Lessons Captured
+Open [http://localhost:3000](http://localhost:3000) — upload an image and hear it.
 
-1. **Semantic-First Beats Pixel-First**
-   - Deterministic rules > direct pixel mapping
-   - Explainable outputs > black-box AI
-   - Cost: 70% lower
+### Setting Up Foundry IQ (Azure AI Search Knowledge Base)
 
-2. **DSP-First Beats AI-First**
-   - Procedural synthesis for 90% of cases
-   - AI enhancement on cache miss only
-   - Cost: near-zero GPU
+To get **cited reasoning** (the agent explaining *why* it made each musical choice), you need Azure AI Search:
 
-3. **Cache-Aggressive Wins**
-   - 7-day TTL reduces 70-80% of requests
-   - Sub-100ms cache hits
-   - Transforms cost structure
+1. **Create Azure AI Search** — Azure Portal → Create resource → "Azure AI Search" → Free tier works
+2. **Create a Knowledge Base** — In Azure AI Foundry portal → Knowledge tab → Connect your search service
+3. **Upload knowledge documents** — The `backend/knowledge_base/` folder contains ready-to-upload documents:
 
-4. **Safety by Design**
-   - Normalization (audio clipping)
-   - Filtering (frequency ranges)
-   - Validation (silence/blank detection)
+```
+backend/knowledge_base/
+├── cross_modal/                          # Music-vision research
+│   ├── 01_scriabin_clavier_a_lumieres.md # Scriabin's colour-to-key mappings
+│   ├── 02_kandinsky_color_theory.md      # Kandinsky's colour-form associations
+│   ├── 03_wallace_2014_crossmodal.md     # Cross-modal perception studies
+│   └── 04_film_score_visual_language.md  # Film score visual language analysis
+└── spectrogram_tools/                    # Spectrogram format guides
+    ├── 01_audacity.md
+    ├── 02_praat.md
+    ├── 03_librosa.md
+    ├── 04_sonic_visualiser.md
+    ├── 05_chrome_music_lab.md
+    ├── 06_adobe_audition.md
+    └── 07_wikipedia.md
+```
 
-5. **Modularity Matters**
-   - Services independent + testable
-   - Pipeline orchestrates cleanly
-   - Fallback strategy always works
+4. **Set env vars** — Copy `AZURE_SEARCH_ENDPOINT`, `AZURE_SEARCH_API_KEY`, `FOUNDRY_KB_NAME`, and `FOUNDRY_KS_NAME` into `backend/.env`
+5. **Restart backend** — The agent will now retrieve and cite from your knowledge base
 
----
+> **Without Azure AI Search**: The app still works fully — the LLM generates parameters without citations, and the heuristic fallback uses hash-based mapping from image features.
 
-## 🚀 Next: Sprint 4 (Audio→Visual)
-
-**Status**: 50% pre-implemented  
-**Timeline**: 2 weeks  
-**Effort**: Moderate (similar to Sprint 3 but mirrored)
-
-### What's Ready
-
-- Semantic mapper: `audio_to_visual_params()` done
-- Pipeline skeleton: `audio_to_visual_pipeline.py` ready
-- Frontend renderer: `SpectrogramVisualizer` prepared
-
-### What's Needed
-
-- Complete `audio_to_visual_pipeline.py`
-- Procedural visual generator
-- Visual safety checks
-- WebGL renderer integration
-- FastAPI endpoint
-
-### Prompts
-
-**PROMPT_LIBRARY.md Sprint 4** has detailed, copy-paste-ready prompts for:
-
-- Audio→visual mapping
-- Procedural generator design
-- Safety validation
-- WebGL configuration
-
----
-
-## 📞 Quick Reference
-
-### Start Commands
+### 4. Run Tests
 
 ```bash
 # Backend
-uvicorn app.main_v2:app --reload --port 8000
+cd backend
+pip install -r requirements-dev.txt
+pytest -q tests/
 
 # Frontend
-npm run dev
-
-# Test
-curl -X POST -F "file=@image.jpg" \
-  "http://localhost:8000/api/generate/image-to-audio"
-```
-
-### Key Files
-
-- **SETUP.md** — Team needs to read this first
-- **COMPLETE_GUIDE.md** — Comprehensive reference
-- **PROMPT_LIBRARY.md** — For future sprints (don't re-read spec)
-- **semantic_mappings.json** — Intelligence core
-
-### Database
-
-```sql
-SELECT * FROM changelog;     -- 28 entries
-SELECT * FROM todos;         -- 14 todos
-SELECT * FROM changelog WHERE sprint = '3';  -- Sprint 3 only
+cd frontend
+npm run build
 ```
 
 ---
 
-## 🎯 Success Criteria: All Met ✅
+## Tech Stack
 
-- [x] Planning complete (architecture + roadmap)
-- [x] Infrastructure scaffolded (Next.js + FastAPI)
-- [x] Image→Audio pipeline 100% working
-- [x] Safety checks implemented
-- [x] Caching layer functional
-- [x] Fallback strategy proven
-- [x] Code documented & type-hinted
-- [x] Team can execute (SETUP.md ready)
-- [x] Model memory preserved (SQL + PROMPT_LIBRARY)
-- [x] Cost on track ($53/mo)
-- [x] Ready for Sprint 4
+| Layer | Technology |
+|-------|-----------|
+| **Frontend** | Next.js 14, TypeScript, Canvas 2D, Web Audio API, Framer Motion |
+| **Backend** | Python 3.11, FastAPI, NumPy, SciPy, Librosa |
+| **AI Agent** | Azure AI Foundry, Azure AI Search, Multi-LLM Chain (OpenAI + Gemini + Groq) |
+| **Audio** | Custom DSP synthesis engine — 17 instruments, real-time waveform generation |
+| **Spectrogram** | Matplotlib (generation), OpenCV + Griffin-Lim (inversion) |
+| **CI/CD** | GitHub Actions — backend tests + frontend build |
 
 ---
 
-## 💾 For Next Session
+## API Reference
 
-**Copy-paste this to preserve context**:
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/api/generate/image-to-audio-foundry` | POST | Image → Audio with Foundry IQ citations |
+| `/api/generate/audio-to-visual-foundry` | POST | Audio → Visual with Foundry IQ citations |
+| `/api/audio-to-spectrogram` | POST | Audio → Spectrogram PNG |
+| `/api/invert-spectrogram` | POST | Spectrogram image → Audio (Griffin-Lim) |
+| `/api/detect-spectrogram` | POST | Classify image as spectrogram |
+| `/api/generate/image-to-audio` | POST | Image → Audio (heuristic, no LLM) |
+| `/api/generate/audio-to-visual` | POST | Audio → Visual (heuristic, no LLM) |
 
-```
-SpectraVerse: Image↔Audio↔Visual multimodal AI
-Sprint 3 complete: Image→Audio pipeline 100% working
-Files: 25 total, 4600+ LOC, all documented
-Next: Sprint 4 (Audio→Visual, 50% pre-implemented)
-Budget: On track ($53/mo within $200 trial)
-Use: PROMPT_LIBRARY.md for Sprint 4 (30+ copy-paste prompts)
-Use: CHANGELOG.md for context (28 timestamped entries)
-Use: semantic_mappings.json (50+ rules, explainable)
-Test: curl -X POST -F "file=@image.jpg" http://localhost:8000/api/generate/image-to-audio
-```
+### Example
 
----
+```bash
+# Image to Audio with Foundry IQ
+curl -X POST -F "file=@sunset.jpg" \
+  "http://localhost:8000/api/generate/image-to-audio-foundry?duration=10"
 
-## 📊 Final Statistics
-
-```
-Session Duration:     31 minutes
-Files Created:        25
-Lines of Code:        4600+
-Sprints Complete:     3/7 (43%)
-Todos Completed:      10/10 (100% for Sprints 1-3)
-Changelog Entries:    28
-Database Components:  21 unique
-API Endpoints:        6 (1 fully working)
-UI Components:        3 (1 real-time viz)
-Cost This Session:    $0
-Projected Monthly:    $53 (well under $200 budget)
+# Response includes: audio_b64, citations, image_features, audio_params
 ```
 
 ---
 
-## 🎉 Session Conclusion
+## Project Structure
 
-**SpectraVerse Image→Audio pipeline is production-ready.**
-
-- Full end-to-end tested
-- Safety measures validated
-- Cost-optimized architecture
-- Team can execute immediately
-- Next sprint fully prepared
-
-**Status**: 🟢 **READY FOR DEPLOYMENT & SPRINT 4**
+```
+spectraverse/
+├── backend/
+│   ├── app/
+│   │   ├── main.py                          # FastAPI endpoints
+│   │   ├── backend_foundry_agent.py         # Multi-LLM chain + Azure AI Search
+│   │   ├── backend_dsp_synthesizer.py       # Audio synthesis engine
+│   │   ├── backend_audio_analyzer.py        # Librosa audio analysis
+│   │   ├── backend_audio_to_visual_pipeline.py
+│   │   ├── backend_spectrogram_inverter.py  # Griffin-Lim inversion
+│   │   └── backend_spectrogram_preprocessor.py
+│   ├── knowledge_base/                      # Azure AI Search documents
+│   │   ├── cross_modal/                     # Scriabin, Kandinsky, research papers
+│   │   └── spectrogram_tools/               # Audacity, Librosa, Praat guides
+│   └── tests/
+├── frontend/
+│   ├── app/page.tsx                         # Main UI — 3-tab layout
+│   ├── components/
+│   │   ├── VisualOutputPanel.tsx            # 50 Canvas 2D renderers
+│   │   ├── AudioOutputPanel.tsx             # Audio playback + waveform
+│   │   ├── UploadZone.tsx                   # Drag-drop upload
+│   │   ├── SpectrogramUploadZone.tsx        # Spectrogram Lab UI
+│   │   ├── FoundryReasoningPanel.tsx        # Citations display
+│   │   └── GenerationProgress.tsx           # Progress indicator
+│   ├── hooks/
+│   │   └── useAudioAnalyser.ts              # Web Audio FFT + onset detection
+│   └── lib/api.ts                           # Backend API client
+├── .github/workflows/ci.yml                 # CI pipeline
+└── docs/
+```
 
 ---
 
-**Built with**: Copilot CLI | Semantic-First Architecture | DSP-First Synthesis  
-**Time**: 31 minutes | **Quality**: ⭐⭐⭐⭐⭐ | **Confidence**: 100%
+## Foundry IQ — How We Use It
+
+SpectraVerse is built around **Azure AI Foundry** as the reasoning backbone. Here's exactly how Foundry IQ powers every transformation:
+
+### Three-Stage Agent Pipeline
+
+Every image-to-audio or audio-to-visual request flows through a three-stage agent pipeline:
+
+```
+Stage 1: DESCRIBE              Stage 2: RETRIEVE               Stage 3: MAP
+┌──────────────────┐           ┌──────────────────┐           ┌──────────────────┐
+│ Vision Model     │──────────▸│ Foundry IQ       │──────────▸│ Mapping Model    │
+│                  │           │ Knowledge Base   │           │                  │
+│ "Warm sunset     │           │                  │           │ key: "D minor"   │
+│  over ocean,     │           │ Retrieves:       │           │ bpm: 72          │
+│  soft gradients, │           │ • Scriabin's     │           │ instruments:     │
+│  low contrast"   │           │   colour-to-key  │           │   [piano, cello] │
+│                  │           │ • Kandinsky's     │           │ pitch: 220       │
+│                  │           │   colour theory  │           │ reverb: 0.8      │
+│                  │           │ • Cross-modal    │           │                  │
+│                  │           │   perception     │           │ + inline         │
+│                  │           │   research       │           │   citations [1-3]│
+└──────────────────┘           └──────────────────┘           └──────────────────┘
+```
+
+**Stage 1 — `describe_image()`**: A vision model (GPT-4o / Gemini) analyzes the uploaded image and produces a rich semantic description: dominant colours, mood, texture, composition, edge density, colour temperature.
+
+**Stage 2 — `query_knowledge()`**: The description is sent to **Azure AI Search** via the Foundry IQ `KnowledgeBaseRetrievalClient`. It retrieves relevant passages from our curated knowledge base — music theory, Scriabin's synesthesia mappings, Kandinsky's colour-form associations, and published cross-modal perception research. Results come back with document keys and citation references.
+
+**Stage 3 — `extract_params()`**: A mapping model receives the image description + retrieved knowledge and produces concrete DSP parameters (key, BPM, instruments, pitch, intervals, reverb, effects) — with inline citations explaining each choice.
+
+### Knowledge Base
+
+The knowledge base is indexed in **Azure AI Search (East US 2)** and contains curated documents in two categories:
+
+- **Cross-modal research** — Scriabin's clavier à lumières, Kandinsky's colour theory, Wallace 2014 cross-modal correspondence studies, film score visual language analysis
+- **Spectrogram tools** — Technical guides for Audacity, Praat, Librosa, Sonic Visualiser, Chrome Music Lab, Adobe Audition, Wikipedia spectrogram formats
+
+Retrieval uses `KnowledgeRetrievalSemanticIntent` for precise, intent-based matching — the agent doesn't just keyword-search, it understands what musical concept it needs to ground.
+
+### Multi-Provider Resilience
+
+The agent uses a **provider chain** — first available wins:
+
+| Priority | Provider | Model | Why |
+|----------|----------|-------|-----|
+| 1 | Azure OpenAI | GPT-4o | Native Foundry integration |
+| 2 | OpenAI Direct | GPT-4o | Reliable fallback |
+| 3 | Google Gemini | Gemini 2.0 Flash | Free tier, vision-capable |
+| 4 | Groq | Llama 4 Maverick | Ultra-fast inference |
+| 5 | Heuristic | — | Deterministic fallback, always works |
+
+If Azure OpenAI has zero TPM quota, the agent seamlessly falls to OpenAI direct. If that key is missing, Gemini picks up. If all LLMs fail, a hash-based heuristic produces varied parameters from image features alone. **The app never fails.**
+
+### Citations in the UI
+
+The frontend `FoundryReasoningPanel` displays the agent's reasoning steps and inline citations. Users see *why* the AI chose D minor over C major, *which research* supports mapping warm colours to lower pitches, and *how* edge density influenced BPM selection.
 
 ---
 
-**Next Step**: Team follows SETUP.md → local environment ready → start testing immediately
+## Why SpectraVerse?
+
+Most AI tools work in a single modality. SpectraVerse demonstrates that **AI agents can reason across modalities** — not just transforming data, but explaining the creative decisions with cited research. It's built on the principle that the connection between sight and sound isn't arbitrary; it's grounded in decades of synesthesia research, colour theory, and music science.
+
+The Foundry IQ agent doesn't just generate — it *teaches*. Every transformation is a lesson in how colour maps to pitch, how texture maps to timbre, and how the great synesthetes (Scriabin, Kandinsky, Messiaen) understood the bridge between what we see and what we hear.
+
+---
+
+<p align="center">
+  Built for the <strong>Microsoft Agents League Hackathon</strong> · Powered by <strong>Azure AI Foundry</strong>
+</p>
