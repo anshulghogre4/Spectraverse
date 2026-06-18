@@ -1071,7 +1071,10 @@ async def invert_spectrogram(
         try:
             result = await loop.run_in_executor(None, _run_raw)
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Raw inversion failed: {e}")
+            import traceback, sys
+            traceback.print_exc(file=sys.stderr)
+            sys.stderr.flush()
+            raise HTTPException(status_code=500, detail=f"Raw inversion failed: {type(e).__name__}: {e}")
         return result
 
     # ── Image-based inversion path (original) ───────────────────────────────
