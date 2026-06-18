@@ -127,7 +127,7 @@ class SpectrogramDetector:
         best_cmap = "viridis"
 
         for cmap_name in self.COLORMAP_NAMES:
-            n = 512
+            n = 256
             cmap = cm.get_cmap(cmap_name, n) if hasattr(cm, 'get_cmap') else matplotlib.colormaps[cmap_name].resampled(n)
             lut_rgb = cmap(np.linspace(0, 1, n))[:, :3].astype(np.float32)
             tree = cKDTree(lut_rgb)

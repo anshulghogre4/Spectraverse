@@ -167,7 +167,7 @@ class SpectrogramPreprocessor:
 
         return img[top:bottom, left:right], (top, bottom, left, right)
 
-    def _build_lut(self, cmap_name: str, n: int = 8192):
+    def _build_lut(self, cmap_name: str, n: int = 512):
         import matplotlib
         import matplotlib.cm as cm
         from scipy.spatial import cKDTree
