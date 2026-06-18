@@ -106,6 +106,7 @@ class SpectrogramDetector:
     def _colormap_score(self, img: np.ndarray) -> tuple[float, str]:
         """Check if pixel colours are consistent with a known monotone colormap."""
         try:
+            import matplotlib
             import matplotlib.cm as cm
             from scipy.spatial import cKDTree
         except ImportError:
@@ -127,7 +128,7 @@ class SpectrogramDetector:
 
         for cmap_name in self.COLORMAP_NAMES:
             n = 512
-            cmap = cm.get_cmap(cmap_name, n)
+            cmap = cm.get_cmap(cmap_name, n) if hasattr(cm, 'get_cmap') else matplotlib.colormaps[cmap_name].resampled(n)
             lut_rgb = cmap(np.linspace(0, 1, n))[:, :3].astype(np.float32)
             tree = cKDTree(lut_rgb)
             dists, _ = tree.query(sampled, k=1)
