@@ -1099,6 +1099,11 @@ async def invert_spectrogram(
                 sv_hop = int(_txt.get("spectraverse_hop_length", "512"))
                 sv_sr = int(_txt.get("spectraverse_sr", "22050"))
                 sv_n_mels = int(_txt.get("spectraverse_n_mels", "128"))
+                # Sanity-check metadata — corrupted/forged values could OOM the
+                # resize step below. Drop the metadata if any value is absurd.
+                if not (0 < sv_frames <= 50000 and 0 < sv_hop <= 8192
+                        and 8000 <= sv_sr <= 96000 and 0 < sv_n_mels <= 1024):
+                    sv_frames = sv_hop = sv_sr = sv_n_mels = None
         except Exception:
             pass
 
