@@ -1,0 +1,15 @@
+{
+  "routes": [
+    {
+      "route": "/api/*",
+      "rewrite": "https://spectraverse-api.nicetree-700994e7.westus3.azurecontainerapps.io/api/*"
+    },
+    {
+      "route": "/health",
+      "rewrite": "https://spectraverse-api.nicetree-700994e7.westus3.azurecontainerapps.io/health"
+    }
+  ],
+  "navigationFallback": {
+    "rewrite": "/index.html"
+  }
+}
