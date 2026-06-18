@@ -168,9 +168,10 @@ class SpectrogramPreprocessor:
         return img[top:bottom, left:right], (top, bottom, left, right)
 
     def _build_lut(self, cmap_name: str, n: int = 8192):
+        import matplotlib
         import matplotlib.cm as cm
         from scipy.spatial import cKDTree
-        c = cm.get_cmap(cmap_name, n)
+        c = cm.get_cmap(cmap_name, n) if hasattr(cm, 'get_cmap') else matplotlib.colormaps[cmap_name].resampled(n)
         v = np.linspace(0.0, 1.0, n, dtype=np.float32)
         rgb = c(v)[:, :3].astype(np.float32)
         return cKDTree(rgb), v
