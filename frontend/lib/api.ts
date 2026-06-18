@@ -1,4 +1,4 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? '';
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'https://spectraverse-api.nicetree-700994e7.westus3.azurecontainerapps.io';
 
 export type ImageFeatures = {
   brightness: number;

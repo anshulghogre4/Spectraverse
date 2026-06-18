@@ -10,13 +10,25 @@
 </p>
 
 <p align="center">
-  <a href="#demo">Demo</a> •
+  <a href="https://purple-glacier-02aebbb0f.7.azurestaticapps.net"><strong>Live Demo</strong></a> •
   <a href="#features">Features</a> •
   <a href="#how-it-works">How It Works</a> •
-  <a href="#quick-start">Quick Start</a> •
+  <a href="#running-locally">Running Locally</a> •
   <a href="#tech-stack">Tech Stack</a> •
   <a href="#api-reference">API</a>
 </p>
+
+---
+
+## Hosted
+
+| Service | URL |
+|---------|-----|
+| **Frontend** (Azure Static Web Apps) | https://purple-glacier-02aebbb0f.7.azurestaticapps.net |
+| **Backend API** (Azure Container Apps) | https://spectraverse-api.nicetree-700994e7.westus3.azurecontainerapps.io |
+| **API health check** | https://spectraverse-api.nicetree-700994e7.westus3.azurecontainerapps.io/health |
+
+> The backend uses scale-to-zero (free tier). The first request after a period of inactivity may take 5–10 seconds to cold-start.
 
 ---
 
@@ -93,7 +105,7 @@ No pre-recorded samples. Every note is synthesized in real-time:
 
 ---
 
-## Quick Start
+## Running Locally
 
 ### Prerequisites
 
@@ -101,13 +113,13 @@ No pre-recorded samples. Every note is synthesized in real-time:
 - Node.js 18+
 - At least one **multimodal (vision-capable) LLM API key** (see below)
 
-> **Important:** All three LLM stages (image description, spectrogram analysis, audio-to-visual mapping) send images to the model. You **must** use a vision-capable model — text-only models will fail silently and fall back to heuristics. Every provider in the default chain is vision-capable: GPT-4o, Gemini 2.5 Flash, and Llama 4 Scout all support image inputs.
+> **Important:** All three LLM stages send images to the model. You **must** use a vision-capable model. Every provider in the default chain is vision-capable: GPT-4o, Gemini 2.5 Flash, and Llama 4 Scout all support image inputs.
 
 ### 1. Clone & configure
 
 ```bash
-git clone https://github.com/your-org/spectraverse.git
-cd spectraverse
+git clone https://github.com/anshulghogre4/Spectraverse.git
+cd Spectraverse
 ```
 
 Copy the example environment file and add your keys:
@@ -116,33 +128,47 @@ Copy the example environment file and add your keys:
 cp .env.example backend/.env
 ```
 
-Open `backend/.env` and fill in your keys. The file is pre-documented — here's what each section does:
+Open `backend/.env` and fill in your keys:
 
-| `.env` Variable | What It's For | Required? |
-|----------------|---------------|-----------|
-| `OPENAI_API_KEY` | LLM provider #2 — GPT-4o for vision + mapping | Need at least one LLM |
-| `GEMINI_API_KEY` | LLM provider #3 — Gemini 2.5 Flash (free tier) | Need at least one LLM |
-| `GROQ_API_KEY` | LLM provider #4 — Llama 4 Scout (free, vision-capable, fast) | Need at least one LLM |
-| `AZURE_OPENAI_ENDPOINT` | LLM provider #1 — Azure OpenAI (Foundry native) | Optional |
-| `AZURE_OPENAI_API_KEY` | Azure OpenAI authentication | With endpoint |
+| Variable | What it's for | Required? |
+|----------|--------------|-----------|
+| `OPENAI_API_KEY` | GPT-4o vision + mapping | Need at least one LLM |
+| `GEMINI_API_KEY` | Gemini 2.5 Flash (free tier, 1500 req/day) | Need at least one LLM |
+| `GROQ_API_KEY` | Llama 4 Scout (free tier, 500 RPD, fast) | Need at least one LLM |
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI (Foundry native) | Optional |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI auth | With endpoint |
 | `AZURE_SEARCH_ENDPOINT` | Foundry IQ knowledge base — Azure AI Search | For citations |
-| `AZURE_SEARCH_API_KEY` | Azure AI Search authentication | With endpoint |
+| `AZURE_SEARCH_API_KEY` | Azure AI Search auth | With search endpoint |
 | `FOUNDRY_KB_NAME` | Knowledge base name in Azure AI Search | With search |
 | `FOUNDRY_KS_NAME` | Knowledge source name | With search |
 
-> **Minimum to run**: Just one LLM key (e.g. `GEMINI_API_KEY` — free, no card required). The app works without Azure AI Search, but you won't get cited reasoning.
+> **Minimum to run**: One LLM key (e.g. `GEMINI_API_KEY` — free, no card required). The app works without Azure AI Search but won't show cited reasoning.
 
 ### 2. Backend
 
 ```bash
 cd backend
 python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+# Windows:
+.venv\Scripts\activate
+# macOS/Linux:
+source .venv/bin/activate
+
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
+Backend available at http://localhost:8000. Docs at http://localhost:8000/docs.
+
 ### 3. Frontend
+
+Create `frontend/.env.local` so the frontend points to your local backend:
+
+```
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+Then start the dev server:
 
 ```bash
 cd frontend
@@ -150,7 +176,22 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) — upload an image and hear it.
+Open http://localhost:3000.
+
+> **Why `.env.local`?** The production build uses relative `/api/*` paths that are proxied by Azure Static Web Apps. Setting `NEXT_PUBLIC_API_URL` locally overrides this so calls go directly to your running backend instead.
+
+### 4. Run tests
+
+```bash
+# Backend
+cd backend
+pip install -r requirements-dev.txt
+pytest -q tests/
+
+# Frontend type-check
+cd frontend
+npm run build
+```
 
 ### Setting Up Foundry IQ (Azure AI Search Knowledge Base)
 
@@ -177,23 +218,8 @@ backend/knowledge_base/
     └── 07_wikipedia.md
 ```
 
-4. **Set env vars** — Copy `AZURE_SEARCH_ENDPOINT`, `AZURE_SEARCH_API_KEY`, `FOUNDRY_KB_NAME`, and `FOUNDRY_KS_NAME` into `backend/.env`
-5. **Restart backend** — The agent will now retrieve and cite from your knowledge base
-
-> **Without Azure AI Search**: The app still works fully — the LLM generates parameters without citations, and the heuristic fallback uses hash-based mapping from image features.
-
-### 4. Run Tests
-
-```bash
-# Backend
-cd backend
-pip install -r requirements-dev.txt
-pytest -q tests/
-
-# Frontend
-cd frontend
-npm run build
-```
+4. Set `AZURE_SEARCH_ENDPOINT`, `AZURE_SEARCH_API_KEY`, `FOUNDRY_KB_NAME`, and `FOUNDRY_KS_NAME` in `backend/.env`
+5. Restart the backend — the agent will now retrieve and cite from your knowledge base
 
 ---
 
@@ -206,7 +232,8 @@ npm run build
 | **AI Agent** | Azure AI Foundry, Azure AI Search, Multi-LLM Chain (OpenAI + Gemini + Groq) |
 | **Audio** | Custom DSP synthesis engine — 17 instruments, real-time waveform generation |
 | **Spectrogram** | Matplotlib (generation), OpenCV + Griffin-Lim (inversion) |
-| **CI/CD** | GitHub Actions — backend tests + frontend build |
+| **Hosting** | Azure Container Apps (backend) + Azure Static Web Apps Free (frontend) |
+| **CI/CD** | GitHub Actions — backend image build to ghcr.io + SWA deploy |
 
 ---
 
@@ -228,7 +255,7 @@ npm run build
 ```bash
 # Image to Audio with Foundry IQ
 curl -X POST -F "file=@sunset.jpg" \
-  "http://localhost:8000/api/generate/image-to-audio-foundry?duration=10"
+  "https://spectraverse-api.nicetree-700994e7.westus3.azurecontainerapps.io/api/generate/image-to-audio-foundry?duration=10"
 
 # Response includes: audio_b64, citations, image_features, audio_params
 ```
@@ -260,11 +287,16 @@ spectraverse/
 │   │   ├── UploadZone.tsx                   # Drag-drop upload
 │   │   ├── SpectrogramUploadZone.tsx        # Spectrogram Lab UI
 │   │   ├── FoundryReasoningPanel.tsx        # Citations display
-│   │   └── GenerationProgress.tsx           # Progress indicator
+│   │   └── GenerationProgress.tsx          # Progress indicator
 │   ├── hooks/
-│   │   └── useAudioAnalyser.ts              # Web Audio FFT + onset detection
-│   └── lib/api.ts                           # Backend API client
-├── .github/workflows/ci.yml                 # CI pipeline
+│   │   └── useAudioAnalyser.ts             # Web Audio FFT + onset detection
+│   ├── lib/api.ts                           # Backend API client
+│   └── public/
+│       └── staticwebapp.config.json        # SWA routing rules (proxy /api/* to backend)
+├── .github/workflows/
+│   ├── azure-static-web-apps-*.yml         # SWA deploy on push to main
+│   ├── build-backend.yml                   # Build + push backend image to ghcr.io
+│   └── ci.yml                              # Tests
 └── docs/
 ```
 
@@ -287,7 +319,7 @@ Stage 1: DESCRIBE              Stage 2: RETRIEVE               Stage 3: MAP
 │  over ocean,     │           │ Retrieves:       │           │ bpm: 72          │
 │  soft gradients, │           │ • Scriabin's     │           │ instruments:     │
 │  low contrast"   │           │   colour-to-key  │           │   [piano, cello] │
-│                  │           │ • Kandinsky's     │           │ pitch: 220       │
+│                  │           │ • Kandinsky's    │           │ pitch: 220       │
 │                  │           │   colour theory  │           │ reverb: 0.8      │
 │                  │           │ • Cross-modal    │           │                  │
 │                  │           │   perception     │           │ + inline         │
@@ -295,48 +327,23 @@ Stage 1: DESCRIBE              Stage 2: RETRIEVE               Stage 3: MAP
 └──────────────────┘           └──────────────────┘           └──────────────────┘
 ```
 
-**Stage 1 — `describe_image()`**: A vision model (GPT-4o / Gemini) analyzes the uploaded image and produces a rich semantic description: dominant colours, mood, texture, composition, edge density, colour temperature.
-
-**Stage 2 — `query_knowledge()`**: The description is sent to **Azure AI Search** via the Foundry IQ `KnowledgeBaseRetrievalClient`. It retrieves relevant passages from our curated knowledge base — music theory, Scriabin's synesthesia mappings, Kandinsky's colour-form associations, and published cross-modal perception research. Results come back with document keys and citation references.
-
-**Stage 3 — `extract_params()`**: A mapping model receives the image description + retrieved knowledge and produces concrete DSP parameters (key, BPM, instruments, pitch, intervals, reverb, effects) — with inline citations explaining each choice.
-
-### Knowledge Base
-
-The knowledge base is indexed in **Azure AI Search (East US 2)** and contains curated documents in two categories:
-
-- **Cross-modal research** — Scriabin's clavier à lumières, Kandinsky's colour theory, Wallace 2014 cross-modal correspondence studies, film score visual language analysis
-- **Spectrogram tools** — Technical guides for Audacity, Praat, Librosa, Sonic Visualiser, Chrome Music Lab, Adobe Audition, Wikipedia spectrogram formats
-
-Retrieval uses `KnowledgeRetrievalSemanticIntent` for precise, intent-based matching — the agent doesn't just keyword-search, it understands what musical concept it needs to ground.
-
 ### Multi-Provider Resilience
-
-The agent uses a **provider chain** — first available wins:
 
 | Priority | Provider | Model | Why |
 |----------|----------|-------|-----|
 | 1 | Azure OpenAI | GPT-4o | Native Foundry integration — vision-capable |
 | 2 | OpenAI Direct | GPT-4o | Reliable fallback — vision-capable |
 | 3 | Google Gemini | Gemini 2.5 Flash | Free tier (1500 req/day) — vision-capable |
-| 4 | Groq | Llama 4 Scout | Free tier (500 RPD) — vision-capable, fast inference |
-| 5 | Heuristic | — | Deterministic fallback, always works, no image understanding |
+| 4 | Groq | Llama 4 Scout | Free tier (500 RPD) — vision-capable, fast |
+| 5 | Heuristic | — | Deterministic fallback, always works |
 
-> **All LLM providers in the chain must be vision-capable.** If you swap in a custom model (via `GEMINI_MODEL`, `GROQ_MODEL`, etc.), ensure it supports image inputs — text-only models will fail the vision stage and the app will silently fall through to the heuristic.
-
-If Azure OpenAI has zero TPM quota, the agent seamlessly falls to OpenAI direct. If that key is missing, Gemini picks up. If all LLMs fail, a hash-based heuristic produces varied parameters from image features alone. **The app never fails.**
-
-### Citations in the UI
-
-The frontend `FoundryReasoningPanel` displays the agent's reasoning steps and inline citations. Users see *why* the AI chose D minor over C major, *which research* supports mapping warm colours to lower pitches, and *how* edge density influenced BPM selection.
+If all LLMs fail, a hash-based heuristic produces varied parameters from image features alone. **The app never fails.**
 
 ---
 
 ## Why SpectraVerse?
 
-Most AI tools work in a single modality. SpectraVerse demonstrates that **AI agents can reason across modalities** — not just transforming data, but explaining the creative decisions with cited research. It's built on the principle that the connection between sight and sound isn't arbitrary; it's grounded in decades of synesthesia research, colour theory, and music science.
-
-The Foundry IQ agent doesn't just generate — it *teaches*. Every transformation is a lesson in how colour maps to pitch, how texture maps to timbre, and how the great synesthetes (Scriabin, Kandinsky, Messiaen) understood the bridge between what we see and what we hear.
+Most AI tools work in a single modality. SpectraVerse demonstrates that **AI agents can reason across modalities** — not just transforming data, but explaining the creative decisions with cited research. The Foundry IQ agent doesn't just generate — it *teaches*. Every transformation is a lesson in how colour maps to pitch, how texture maps to timbre, and how the great synesthetes (Scriabin, Kandinsky, Messiaen) understood the bridge between what we see and what we hear.
 
 ---
 
