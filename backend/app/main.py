@@ -35,6 +35,29 @@ try:
 except ImportError:
     LIBROSA_AVAILABLE = False
 
+# ── librosa NNLS m-cap patch ──────────────────────────────────────────────
+# librosa 0.11.0's _nnls_lbfgs_block defaults the L-BFGS correction history
+# (`m`) to A.shape[1] = n_stft_bins, often 1025. scipy.optimize.fmin_l_bfgs_b
+# then allocates a working array of 2*m*n + 5*n + 11*m*m + 8*m float64s,
+# which for typical mel inversion (n_stft_bins=1025, n=block_size*1025)
+# reaches multiple GB and OOMs. L-BFGS docs recommend m in [5, 20].
+# We wrap the function so any caller-supplied or defaulted m above 20 is
+# capped to 20 before the scipy call.
+if LIBROSA_AVAILABLE:
+    try:
+        from librosa.util import _nnls as _librosa_nnls_mod
+        _orig_nnls_lbfgs_block = _librosa_nnls_mod._nnls_lbfgs_block
+
+        def _patched_nnls_lbfgs_block(A, B, x_init=None, **kwargs):
+            m = kwargs.get("m")
+            if m is None or m > 20:
+                kwargs["m"] = 20
+            return _orig_nnls_lbfgs_block(A, B, x_init=x_init, **kwargs)
+
+        _librosa_nnls_mod._nnls_lbfgs_block = _patched_nnls_lbfgs_block
+    except Exception:
+        pass
+
 try:
     import scipy.io.wavfile as _wavfile
     SCIPY_AVAILABLE = True
@@ -1008,8 +1031,6 @@ async def invert_spectrogram(
 
             # Invert using mel_to_audio directly (bypasses _cap_input_size since
             # we know the exact shape is correct).
-            # m=10: override librosa's default L-BFGS history (= n_stft_bins,
-            # which causes a multi-GB working array allocation in scipy).
             audio = librosa.feature.inverse.mel_to_audio(
                 S_amplitude,
                 sr=raw_sr,
@@ -1020,7 +1041,6 @@ async def invert_spectrogram(
                 center=True,
                 power=1.0,
                 n_iter=raw_n_iter,
-                m=10,
             )
 
             # Normalize

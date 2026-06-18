@@ -141,8 +141,6 @@ class SpectrogramInverter:
                 )
             else:
                 # Mel inversion (standard librosa path).
-                # m=10: override librosa's default L-BFGS history (= n_stft_bins,
-                # which causes a multi-GB working array allocation in scipy).
                 audio = librosa.feature.inverse.mel_to_audio(
                     mag,
                     sr=self.sr,
@@ -153,7 +151,6 @@ class SpectrogramInverter:
                     center=True,
                     power=1.0,
                     n_iter=self.n_iter,
-                    m=10,
                 )
 
         audio = audio.astype(np.float32)
