@@ -945,11 +945,20 @@ async def invert_spectrogram(
             # Decode raw float32 numpy array from base64.
             # The frontend sends the base64 string as a text blob, so strip
             # any whitespace / padding before decoding.
+            #
+            # Guard BEFORE decode — a 5 GB raw_text would OOM inside b64decode
+            # itself before our post-decode check could run.
+            MAX_RAW_BYTES = 50 * 1024 * 1024  # 50 MB decoded ceiling
+            MAX_B64_INPUT = int(MAX_RAW_BYTES * 4 / 3) + 1024  # ~67 MB
+            if len(raw_b64_content) > MAX_B64_INPUT:
+                raise ValueError(
+                    f"Raw spectrogram upload too large ({len(raw_b64_content) / 1024 / 1024:.1f} MB). "
+                    f"Max supported: {MAX_B64_INPUT / 1024 / 1024:.0f} MB."
+                )
+
             raw_text = raw_b64_content.decode("utf-8", errors="ignore").strip()
             raw_bytes = base64.b64decode(raw_text)
 
-            # Safety: reject payloads that would produce arrays > 50 MB
-            MAX_RAW_BYTES = 50 * 1024 * 1024
             if len(raw_bytes) > MAX_RAW_BYTES:
                 raise ValueError(
                     f"Raw spectrogram data too large ({len(raw_bytes) / 1024 / 1024:.1f} MB). "
@@ -1204,8 +1213,8 @@ async def invert_spectrogram(
         result = await loop.run_in_executor(None, _run)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    except MemoryError:
-        raise HTTPException(status_code=422, detail="Image too large for spectrogram inversion. Upload a smaller spectrogram screenshot.")
+    except MemoryError as e:
+        raise HTTPException(status_code=422, detail=f"Out of memory during inversion: {e}. Try a smaller image or fewer iterations.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Inversion failed: {e}")
 
