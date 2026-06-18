@@ -957,7 +957,6 @@ async def invert_spectrogram(
                 )
 
             S_db = np.frombuffer(raw_bytes, dtype=np.float32).copy()
-
             inferred_n_mels = raw_n_mels
             total_elements = len(S_db)
 
@@ -976,11 +975,11 @@ async def invert_spectrogram(
                     S_db = S_db[:total_elements]
 
             frames = total_elements // inferred_n_mels
-            if frames > 20000:
-                raise ValueError(
-                    f"Spectrogram has {frames} frames — too large for inversion. "
-                    f"Try a shorter audio clip (max ~3 minutes)."
-                )
+            if frames > 10000:
+                # Truncate to ~3 min at 512 hop / 22050 sr instead of OOM
+                frames = 10000
+                total_elements = inferred_n_mels * frames
+                S_db = S_db[:total_elements]
             S_db = S_db.reshape(inferred_n_mels, frames)
 
             S_power = librosa.db_to_power(S_db)
