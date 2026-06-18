@@ -1007,7 +1007,9 @@ async def invert_spectrogram(
             )
 
             # Invert using mel_to_audio directly (bypasses _cap_input_size since
-            # we know the exact shape is correct)
+            # we know the exact shape is correct).
+            # m=10: override librosa's default L-BFGS history (= n_stft_bins,
+            # which causes a multi-GB working array allocation in scipy).
             audio = librosa.feature.inverse.mel_to_audio(
                 S_amplitude,
                 sr=raw_sr,
@@ -1018,6 +1020,7 @@ async def invert_spectrogram(
                 center=True,
                 power=1.0,
                 n_iter=raw_n_iter,
+                m=10,
             )
 
             # Normalize
